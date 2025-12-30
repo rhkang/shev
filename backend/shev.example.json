@@ -1,0 +1,24 @@
+{
+  "port": 3000,
+  "queue_size": 100,
+  "handlers": [
+    {
+      "event_type": "ping",
+      "shell": "pwsh",
+      "command": "Write-Output 'pong'",
+      "timeout": 30
+    },
+    {
+      "event_type": "health_check",
+      "shell": "bash",
+      "command": "echo 'healthy'"
+    }
+  ],
+  "timers": [
+    {
+      "event_type": "health_check",
+      "context": "scheduled",
+      "interval_secs": 60
+    }
+  ]
+}
