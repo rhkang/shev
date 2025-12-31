@@ -5,8 +5,6 @@
 	let status = $state<Status | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
-	let actionLoading = $state(false);
-
 	async function fetchStatus() {
 		try {
 			status = await api.getStatus();
@@ -18,25 +16,8 @@
 		}
 	}
 
-	async function toggleConsumer() {
-		if (!status) return;
-		actionLoading = true;
-		try {
-			if (status.consumer_running) {
-				await api.stopConsumer();
-			} else {
-				await api.startConsumer();
-			}
-			await fetchStatus();
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Action failed';
-		} finally {
-			actionLoading = false;
-		}
-	}
-
 	async function reload() {
-		actionLoading = true;
+		loading = true;
 		try {
 			const result = await api.reload();
 			await fetchStatus();
@@ -44,7 +25,7 @@
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Reload failed';
 		} finally {
-			actionLoading = false;
+			loading = false;
 		}
 	}
 
@@ -63,14 +44,6 @@
 	<p class="error">{error}</p>
 {:else if status}
 	<div class="stats-grid">
-		<div class="card stat-card">
-			<div class="stat-label">Consumer</div>
-			<div class="stat-value">
-				<span class="badge" class:running={status.consumer_running} class:failed={!status.consumer_running}>
-					{status.consumer_running ? 'Running' : 'Stopped'}
-				</span>
-			</div>
-		</div>
 		<div class="card stat-card">
 			<div class="stat-label">Total Jobs</div>
 			<div class="stat-value">{status.total_jobs}</div>
@@ -94,10 +67,7 @@
 	</div>
 
 	<div class="actions">
-		<button onclick={toggleConsumer} disabled={actionLoading}>
-			{status.consumer_running ? 'Stop Consumer' : 'Start Consumer'}
-		</button>
-		<button class="secondary" onclick={reload} disabled={actionLoading}>
+		<button onclick={reload} disabled={loading}>
 			Reload Config
 		</button>
 		<button class="secondary" onclick={fetchStatus}>
