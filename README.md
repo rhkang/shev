@@ -38,7 +38,20 @@ The main server that processes events and executes shell commands.
 ```sh
 # Database path defaults to shev.db next to executable
 # Override with SHEV_DB environment variable
-SHEV_DB=/path/to/shev.db ./backend
+SHEV_DB=/path/to/shev.db shev-backend
+
+# Listen on localhost only
+shev-backend 
+
+# Listen on all interfaces
+shev-backend --listen
+
+# Allow specific IPs for read access (GET requests)
+shev-backend --listen --allow 192.168.1.100 --allow 10.0.0.50
+
+# Allow specific IPs for write access (POST/PUT/DELETE)
+# Write IPs also get read access
+shev-backend --listen --allow-write 192.168.1.100
 ```
 
 ### cli
@@ -78,3 +91,13 @@ shev --url http://127.0.0.1:3000 reload
 ### core
 
 Shared library containing database operations and model definitions. Used by both backend and cli.
+
+### ui
+
+Web dashboard for managing and monitoring shev. Built with SvelteKit.
+
+```sh
+cd ui
+npm install
+npm run dev
+```
