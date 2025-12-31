@@ -90,7 +90,12 @@ pub struct ScheduleRecord {
 }
 
 impl ScheduleRecord {
-    pub fn new(event_type: String, context: String, scheduled_time: DateTime<Utc>, periodic: bool) -> Self {
+    pub fn new(
+        event_type: String,
+        context: String,
+        scheduled_time: DateTime<Utc>,
+        periodic: bool,
+    ) -> Self {
         Self {
             id: Uuid::new_v4(),
             event_type,
@@ -197,6 +202,7 @@ impl Database {
         shell: Option<&ShellType>,
         command: Option<&str>,
         timeout: Option<Option<u64>>,
+        env: Option<&HashMap<String, String>>,
     ) -> Result<EventHandler, String> {
         let existing = self
             .get_handler(event_type)?
@@ -207,16 +213,19 @@ impl Database {
         let new_shell = shell.unwrap_or(&existing.shell);
         let new_command = command.unwrap_or(&existing.command);
         let new_timeout = timeout.unwrap_or(existing.timeout);
+        let new_env = env.unwrap_or(&existing.env);
+        let env_json = serde_json::to_string(new_env).unwrap_or_else(|_| "{}".to_string());
 
         self.conn
             .execute(
-                r#"UPDATE handlers SET id = ?1, shell = ?2, command = ?3, timeout = ?4, updated_at = ?5
-               WHERE event_type = ?6"#,
+                r#"UPDATE handlers SET id = ?1, shell = ?2, command = ?3, timeout = ?4, env = ?5, updated_at = ?6
+               WHERE event_type = ?7"#,
                 params![
                     new_id.to_string(),
                     new_shell.as_str(),
                     new_command,
                     new_timeout,
+                    env_json,
                     now,
                     event_type
                 ],
@@ -229,7 +238,7 @@ impl Database {
             shell: new_shell.clone(),
             command: new_command.to_string(),
             timeout: new_timeout,
-            env: existing.env,
+            env: new_env.clone(),
         })
     }
 

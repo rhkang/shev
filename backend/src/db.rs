@@ -89,6 +89,87 @@ impl Database {
         let db = self.inner.lock().await;
         db.get_schedule_id(event_type).ok().flatten()
     }
+
+    pub async fn insert_handler(
+        &self,
+        event_type: &str,
+        shell: &shev_core::ShellType,
+        command: &str,
+        timeout: Option<u64>,
+        env: &std::collections::HashMap<String, String>,
+    ) -> Result<EventHandler, String> {
+        let db = self.inner.lock().await;
+        db.insert_handler(event_type, shell, command, timeout, env)
+    }
+
+    pub async fn update_handler(
+        &self,
+        event_type: &str,
+        shell: Option<&shev_core::ShellType>,
+        command: Option<&str>,
+        timeout: Option<Option<u64>>,
+        env: Option<&std::collections::HashMap<String, String>>,
+    ) -> Result<EventHandler, String> {
+        let db = self.inner.lock().await;
+        db.update_handler(event_type, shell, command, timeout, env)
+    }
+
+    pub async fn delete_handler(&self, event_type: &str) -> Result<bool, String> {
+        let db = self.inner.lock().await;
+        db.delete_handler(event_type)
+    }
+
+    pub async fn insert_timer(
+        &self,
+        event_type: &str,
+        interval_secs: u64,
+        context: &str,
+    ) -> Result<TimerRecord, String> {
+        let db = self.inner.lock().await;
+        db.insert_timer(event_type, interval_secs, context)
+    }
+
+    pub async fn update_timer(
+        &self,
+        event_type: &str,
+        interval_secs: Option<u64>,
+        context: Option<&str>,
+    ) -> Result<TimerRecord, String> {
+        let db = self.inner.lock().await;
+        db.update_timer(event_type, interval_secs, context)
+    }
+
+    pub async fn delete_timer(&self, event_type: &str) -> Result<bool, String> {
+        let db = self.inner.lock().await;
+        db.delete_timer(event_type)
+    }
+
+    pub async fn insert_schedule(
+        &self,
+        event_type: &str,
+        scheduled_time: chrono::DateTime<chrono::Utc>,
+        context: &str,
+        periodic: bool,
+    ) -> Result<ScheduleRecord, String> {
+        let db = self.inner.lock().await;
+        db.insert_schedule(event_type, scheduled_time, context, periodic)
+    }
+
+    pub async fn update_schedule(
+        &self,
+        event_type: &str,
+        scheduled_time: Option<chrono::DateTime<chrono::Utc>>,
+        context: Option<&str>,
+        periodic: Option<bool>,
+    ) -> Result<ScheduleRecord, String> {
+        let db = self.inner.lock().await;
+        db.update_schedule(event_type, scheduled_time, context, periodic)
+    }
+
+    pub async fn delete_schedule(&self, event_type: &str) -> Result<bool, String> {
+        let db = self.inner.lock().await;
+        db.delete_schedule(event_type)
+    }
 }
 
 impl Clone for Database {
