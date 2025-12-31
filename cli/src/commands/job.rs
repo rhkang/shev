@@ -18,6 +18,14 @@ pub enum JobAction {
     Show {
         /// Job ID
         job_id: String,
+        /// Maximum output lines to show (0 for no limit)
+        #[arg(long, short = 'n', default_value = "20")]
+        max_lines: usize,
+    },
+    /// Cancel a pending or running job
+    Cancel {
+        /// Job ID
+        job_id: String,
     },
 }
 
@@ -50,12 +58,11 @@ pub fn execute(db_path: &str, action: JobAction) -> Result<(), String> {
                 }
             }
         }
-        JobAction::Show { job_id } => {
+        JobAction::Show { job_id, max_lines } => {
             let uuid =
                 Uuid::parse_str(&job_id).map_err(|_| format!("Invalid job ID: {}", job_id))?;
 
             if let Some(j) = db.get_job(uuid)? {
-                // Check if handler is still current
                 let current_handler_id = db.get_handler_id(&j.event.event_type)?;
                 let handler_current = current_handler_id == Some(j.handler_id);
 
@@ -80,21 +87,27 @@ pub fn execute(db_path: &str, action: JobAction) -> Result<(), String> {
                 }
                 if let Some(ref output) = j.output {
                     println!("  Output:");
-                    for line in output.lines().take(20) {
-                        println!("    {}", line);
-                    }
-                    if output.lines().count() > 20 {
-                        println!("    ... (truncated)");
-                    }
+                    print_lines(output, max_lines);
                 }
                 if let Some(ref error) = j.error {
                     println!("  Error:");
-                    for line in error.lines().take(10) {
-                        println!("    {}", line);
-                    }
+                    print_lines(error, max_lines);
                 }
             } else {
                 println!("Job '{}' not found", job_id);
+            }
+        }
+        JobAction::Cancel { job_id } => {
+            let uuid =
+                Uuid::parse_str(&job_id).map_err(|_| format!("Invalid job ID: {}", job_id))?;
+
+            if db.cancel_job(uuid)? {
+                println!("Job '{}' cancelled", job_id);
+            } else {
+                println!(
+                    "Job '{}' not found or not cancellable (only pending/running jobs can be cancelled)",
+                    job_id
+                );
             }
         }
     }
@@ -116,5 +129,23 @@ fn truncate(s: &str, max: usize) -> String {
         format!("{}...", &s[..max - 3])
     } else {
         s.to_string()
+    }
+}
+
+fn print_lines(text: &str, max_lines: usize) {
+    let lines: Vec<&str> = text.lines().collect();
+    let total = lines.len();
+
+    if max_lines == 0 {
+        for line in lines {
+            println!("    {}", line);
+        }
+    } else {
+        for line in lines.iter().take(max_lines) {
+            println!("    {}", line);
+        }
+        if total > max_lines {
+            println!("    ... ({} more lines)", total - max_lines);
+        }
     }
 }

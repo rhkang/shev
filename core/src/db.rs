@@ -524,6 +524,18 @@ impl Database {
         Ok(rows)
     }
 
+    pub fn cancel_job(&self, job_id: Uuid) -> Result<bool, String> {
+        let now = Utc::now().to_rfc3339();
+        let rows = self
+            .conn
+            .execute(
+                "UPDATE jobs SET status = 'cancelled', finished_at = ?1 WHERE id = ?2 AND (status = 'pending' OR status = 'running')",
+                params![now, job_id.to_string()],
+            )
+            .map_err(|e| format!("Failed to cancel job: {}", e))?;
+        Ok(rows > 0)
+    }
+
     fn row_to_job(row: &rusqlite::Row) -> rusqlite::Result<Job> {
         let id: String = row.get(0)?;
         let event_id: String = row.get(1)?;
