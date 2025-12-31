@@ -86,7 +86,7 @@
 			</div>
 		</div>
 
-		{#if job.status === 'Pending' || job.status === 'Running'}
+		{#if job.status === 'pending' || job.status === 'running'}
 			<div class="actions">
 				<button class="danger" onclick={cancelJob}>Cancel Job</button>
 			</div>

@@ -19,7 +19,7 @@ export interface Job {
 	id: string;
 	event: Event;
 	handler_id: string;
-	status: 'Pending' | 'Running' | 'Completed' | 'Failed' | 'Cancelled';
+	status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 	output: string | null;
 	error: string | null;
 	started_at: string | null;
@@ -74,7 +74,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export type JobStatus = Job['status'];
 
-export const JOB_STATUSES: JobStatus[] = ['Pending', 'Running', 'Completed', 'Failed', 'Cancelled'];
+export const JOB_STATUSES: JobStatus[] = ['pending', 'running', 'completed', 'failed', 'cancelled'];
 
 export const api = {
 	// Status
@@ -82,7 +82,6 @@ export const api = {
 
 	// Jobs
 	getJobs: () => request<Job[]>('/jobs'),
-	getCompletedJobs: () => request<Job[]>('/jobs/completed'),
 	getJob: (id: string) => request<Job>(`/jobs/${id}`),
 	cancelJob: (id: string) => request<{ message: string }>(`/jobs/${id}/cancel`, { method: 'POST' }),
 

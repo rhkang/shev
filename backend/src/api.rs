@@ -1,6 +1,6 @@
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     routing::{get, post, put},
 };
@@ -61,12 +61,26 @@ async fn get_status(State(state): State<ApiState>) -> Json<StatusResponse> {
     })
 }
 
-async fn get_jobs(State(state): State<ApiState>) -> Json<Vec<Job>> {
-    Json(state.store.get_all_jobs().await)
+#[derive(Deserialize)]
+pub struct JobsQuery {
+    pub status: Option<String>,
 }
 
-async fn get_completed_jobs(State(state): State<ApiState>) -> Json<Vec<Job>> {
-    Json(state.store.get_completed_jobs().await)
+async fn get_jobs(
+    State(state): State<ApiState>,
+    Query(query): Query<JobsQuery>,
+) -> Json<Vec<Job>> {
+    let jobs = match &query.status {
+        Some(status_str) => {
+            if let Some(status) = JobStatus::from_str(status_str) {
+                state.store.get_jobs_by_status(status).await
+            } else {
+                state.store.get_all_jobs().await
+            }
+        }
+        None => state.store.get_all_jobs().await,
+    };
+    Json(jobs)
 }
 
 async fn get_job(
@@ -493,7 +507,6 @@ pub fn create_api_router(
         .route("/status", get(get_status))
         .route("/health", get(healthcheck))
         .route("/jobs", get(get_jobs))
-        .route("/jobs/completed", get(get_completed_jobs))
         .route("/jobs/{job_id}", get(get_job))
         .route("/jobs/{job_id}/cancel", post(cancel_job))
         // Handlers CRUD
