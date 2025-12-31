@@ -58,14 +58,14 @@ async fn main() {
 
     let (sender, receiver) = create_event_queue(queue_size);
 
-    let timer_manager = TimerManager::new(sender.clone(), store.clone());
+    let timer_manager = TimerManager::new(store.clone());
     for timer in timers {
-        timer_manager.register_timer(timer).await;
+        timer_manager.register_timer(timer, sender.clone()).await;
     }
 
-    let schedule_manager = ScheduleManager::new(sender.clone(), store.clone());
+    let schedule_manager = ScheduleManager::new(store.clone());
     for schedule in schedules {
-        schedule_manager.register_schedule(schedule).await;
+        schedule_manager.register_schedule(schedule, sender.clone()).await;
     }
 
     let consumer_store = store.clone();
@@ -75,8 +75,8 @@ async fn main() {
     });
 
     let app = Router::new()
-        .merge(create_http_producer_router(sender, timer_manager.clone()))
-        .merge(create_api_router(store, control, timer_manager, schedule_manager));
+        .merge(create_http_producer_router(sender.clone()))
+        .merge(create_api_router(store, control, timer_manager, schedule_manager, sender));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     info!("Server listening on {}", addr);

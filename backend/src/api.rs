@@ -12,6 +12,7 @@ use chrono::{DateTime, Utc};
 use crate::consumer::ConsumerControl;
 use crate::db::{Job, JobStatus};
 use crate::producer::{ScheduleManager, TimerManager};
+use crate::queue::EventSender;
 use crate::store::JobStore;
 
 #[derive(Clone)]
@@ -20,6 +21,7 @@ pub struct ApiState {
     pub control: ConsumerControl,
     pub timer_manager: TimerManager,
     pub schedule_manager: ScheduleManager,
+    pub sender: EventSender,
 }
 
 #[derive(Serialize)]
@@ -178,12 +180,18 @@ async fn reload(State(state): State<ApiState>) -> Json<ReloadResponse> {
 
     let timers = state.store.load_timers().await;
     for timer in &timers {
-        state.timer_manager.register_timer(timer.clone()).await;
+        state
+            .timer_manager
+            .register_timer(timer.clone(), state.sender.clone())
+            .await;
     }
 
     let schedules = state.store.load_schedules().await;
     for schedule in &schedules {
-        state.schedule_manager.register_schedule(schedule.clone()).await;
+        state
+            .schedule_manager
+            .register_schedule(schedule.clone(), state.sender.clone())
+            .await;
     }
 
     Json(ReloadResponse {
@@ -223,12 +231,14 @@ pub fn create_api_router(
     control: ConsumerControl,
     timer_manager: TimerManager,
     schedule_manager: ScheduleManager,
+    sender: EventSender,
 ) -> Router {
     let state = ApiState {
         store,
         control,
         timer_manager,
         schedule_manager,
+        sender,
     };
 
     Router::new()

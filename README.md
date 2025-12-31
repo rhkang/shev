@@ -20,7 +20,8 @@ cargo install --path cli
 ## Features
 
 - Execute shell commands in response to events
-- Timer-based job scheduling
+- Timer-based recurring jobs (interval-based)
+- Schedule-based jobs (UTC time-based, one-shot or daily)
 - Job management via HTTP API
 
 ## Projects
@@ -57,9 +58,15 @@ shev handler delete my-event
 shev timer add my-timer 60 --context "optional context"
 shev timer list
 
+# Schedule management (UTC time-based)
+shev schedule add my-schedule "2025-01-15T14:30:00Z" --context "optional context"
+shev schedule add daily-task "2025-01-15T09:00:00Z" --periodic
+shev schedule list
+
 # Job inspection
 shev job list
 shev job show <job-id>
+shev job cancel <job-id>
 
 # Trigger events (requires running backend)
 shev --url http://127.0.0.1:3000 event trigger my-event

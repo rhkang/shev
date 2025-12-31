@@ -132,10 +132,6 @@ impl JobStore {
         self.get_jobs_by_status(JobStatus::Completed).await
     }
 
-    pub async fn has_active_job(&self, event_type: &str) -> bool {
-        self.db.has_active_job(event_type).await
-    }
-
     pub async fn get_timer_id(&self, event_type: &str) -> Option<Uuid> {
         self.db.get_timer_id(event_type).await
     }

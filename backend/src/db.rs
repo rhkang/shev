@@ -70,11 +70,6 @@ impl Database {
         db.get_all_jobs(Some(&status), 1000).unwrap_or_default()
     }
 
-    pub async fn has_active_job(&self, event_type: &str) -> bool {
-        let db = self.inner.lock().await;
-        db.has_active_job(event_type)
-    }
-
     pub async fn get_timer_id(&self, event_type: &str) -> Option<Uuid> {
         let db = self.inner.lock().await;
         db.get_timer_id(event_type).ok().flatten()
