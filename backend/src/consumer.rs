@@ -1,6 +1,3 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use tracing::{error, info, warn};
 
 use crate::db::JobStatus;
@@ -8,50 +5,10 @@ use crate::executor::execute_command;
 use crate::queue::EventReceiver;
 use crate::store::JobStore;
 
-#[derive(Clone)]
-pub struct ConsumerControl {
-    running: Arc<AtomicBool>,
-}
-
-impl ConsumerControl {
-    pub fn new() -> Self {
-        Self {
-            running: Arc::new(AtomicBool::new(true)),
-        }
-    }
-
-    pub fn stop(&self) {
-        self.running.store(false, Ordering::SeqCst);
-    }
-
-    pub fn start(&self) {
-        self.running.store(true, Ordering::SeqCst);
-    }
-
-    pub fn is_running(&self) -> bool {
-        self.running.load(Ordering::SeqCst)
-    }
-}
-
-impl Default for ConsumerControl {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-pub async fn start_consumer(
-    mut receiver: EventReceiver,
-    store: JobStore,
-    control: ConsumerControl,
-) {
+pub async fn start_consumer(mut receiver: EventReceiver, store: JobStore) {
     info!("Event consumer started");
 
     while let Some(event) = receiver.recv().await {
-        if !control.is_running() {
-            info!("Consumer paused, skipping event: {:?}", event.id);
-            continue;
-        }
-
         info!(
             "Processing event: {:?} (type: {})",
             event.id, event.event_type
@@ -70,35 +27,38 @@ pub async fn start_consumer(
 
         info!("Created job: {:?} (handler: {:?})", job_id, handler.id);
 
-        if let Some(j) = store.get_job(job_id).await {
-            if j.status == JobStatus::Cancelled {
-                info!("Job {:?} was cancelled before execution", job_id);
-                continue;
-            }
-        }
-
-        store.mark_running(job_id).await;
-
-        match execute_command(&handler, &event.context).await {
-            Ok(result) => {
-                if result.success {
-                    info!("Job {:?} completed successfully", job_id);
-                    store.mark_completed(job_id, result.stdout).await;
-                } else {
-                    let error_msg = if result.stderr.is_empty() {
-                        format!("Exit code: {:?}", result.exit_code)
-                    } else {
-                        result.stderr
-                    };
-                    error!("Job {:?} failed: {}", job_id, error_msg);
-                    store.mark_failed(job_id, error_msg).await;
+        let store = store.clone();
+        tokio::spawn(async move {
+            if let Some(j) = store.get_job(job_id).await {
+                if j.status == JobStatus::Cancelled {
+                    info!("Job {:?} was cancelled before execution", job_id);
+                    return;
                 }
             }
-            Err(e) => {
-                error!("Job {:?} execution error: {}", job_id, e);
-                store.mark_failed(job_id, e).await;
+
+            store.mark_running(job_id).await;
+
+            match execute_command(&handler, &event.context).await {
+                Ok(result) => {
+                    if result.success {
+                        info!("Job {:?} completed successfully", job_id);
+                        store.mark_completed(job_id, result.stdout).await;
+                    } else {
+                        let error_msg = if result.stderr.is_empty() {
+                            format!("Exit code: {:?}", result.exit_code)
+                        } else {
+                            result.stderr
+                        };
+                        error!("Job {:?} failed: {}", job_id, error_msg);
+                        store.mark_failed(job_id, error_msg).await;
+                    }
+                }
+                Err(e) => {
+                    error!("Job {:?} execution error: {}", job_id, e);
+                    store.mark_failed(job_id, e).await;
+                }
             }
-        }
+        });
     }
 
     info!("Event consumer stopped");
