@@ -8,11 +8,11 @@ name = "shev"
 path = "src/main.rs"
 
 [dependencies]
-shev-core = { path = "../core" }
-clap = { version = "4", features = ["derive", "env"] }
-chrono = "0.4"
-uuid = { version = "1", features = ["v4"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-reqwest = { version = "0.12", features = ["json"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+shev-core.workspace = true
+clap.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
