@@ -14,7 +14,9 @@ use tokio::net::TcpListener;
 use tracing::info;
 
 use crate::api::create_api_router;
-use crate::config::get_db_path;
+use clap::Parser;
+
+use crate::config::{Args, get_db_path};
 use crate::consumer::{ConsumerControl, start_consumer};
 use crate::db::Database;
 use crate::producer::{ScheduleManager, TimerManager, create_http_producer_router};
@@ -23,6 +25,8 @@ use crate::store::JobStore;
 
 #[tokio::main]
 async fn main() {
+    let args = Args::parse();
+
     tracing_subscriber::fmt::init();
 
     info!("Starting shev - Shell Event System");
@@ -78,7 +82,8 @@ async fn main() {
         .merge(create_http_producer_router(sender.clone()))
         .merge(create_api_router(store, control, timer_manager, schedule_manager, sender));
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let host = if args.listen { [0, 0, 0, 0] } else { [127, 0, 0, 1] };
+    let addr = SocketAddr::from((host, port));
     info!("Server listening on {}", addr);
 
     let listener = TcpListener::bind(addr).await.unwrap();
