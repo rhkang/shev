@@ -8,7 +8,9 @@ use tokio::sync::{Notify, RwLock};
 use tokio::time::sleep;
 use tracing::{info, warn};
 
-use crate::db::{Event, TimerRecord};
+use chrono::Utc;
+
+use crate::db::{Event, ScheduleRecord, TimerRecord};
 use crate::queue::EventSender;
 use crate::store::JobStore;
 
@@ -99,6 +101,215 @@ impl TimerManager {
     pub async fn has_timer(&self, event_type: &str) -> bool {
         let timers = self.timers.read().await;
         timers.contains_key(event_type)
+    }
+}
+
+#[derive(Debug)]
+struct ScheduleState {
+    trigger: Arc<Notify>,
+}
+
+#[derive(Clone)]
+pub struct ScheduleManager {
+    schedules: Arc<RwLock<HashMap<String, Arc<ScheduleState>>>>,
+    sender: EventSender,
+    store: JobStore,
+}
+
+impl ScheduleManager {
+    pub fn new(sender: EventSender, store: JobStore) -> Self {
+        Self {
+            schedules: Arc::new(RwLock::new(HashMap::new())),
+            sender,
+            store,
+        }
+    }
+
+    pub async fn register_schedule(&self, config: ScheduleRecord) {
+        let event_type = config.event_type.clone();
+        let schedule_id = config.id;
+
+        {
+            let existing_schedule = self.store.get_schedule(&event_type).await;
+            if let Some(existing) = existing_schedule {
+                if existing.id == schedule_id {
+                    info!(
+                        "Schedule '{}' (id: {}) already running, skipping",
+                        event_type, schedule_id
+                    );
+                    return;
+                }
+
+                info!(
+                    "Schedule '{}' updated (old: {}, new: {}), old will stop on next cycle",
+                    event_type, existing.id, schedule_id
+                );
+            }
+        }
+
+        info!("Starting schedule '{}' (id: {})", event_type, schedule_id);
+
+        let trigger = Arc::new(Notify::new());
+
+        let state = Arc::new(ScheduleState {
+            trigger: trigger.clone(),
+        });
+
+        {
+            let mut schedules = self.schedules.write().await;
+            schedules.insert(event_type.clone(), state);
+        }
+
+        self.store.register_schedule(config.clone()).await;
+
+        let sender = self.sender.clone();
+        let store = self.store.clone();
+        tokio::spawn(async move {
+            run_schedule(config, sender, store, trigger).await;
+        });
+    }
+
+    pub async fn trigger(&self, event_type: &str) -> bool {
+        if self.store.has_active_job(event_type).await {
+            info!(
+                "Manual trigger ignored for schedule '{}': job already active",
+                event_type
+            );
+            return false;
+        }
+
+        let schedules = self.schedules.read().await;
+        if let Some(state) = schedules.get(event_type) {
+            state.trigger.notify_one();
+            info!("Manual trigger accepted for schedule '{}'", event_type);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub async fn has_schedule(&self, event_type: &str) -> bool {
+        let schedules = self.schedules.read().await;
+        schedules.contains_key(event_type)
+    }
+
+    pub async fn unregister(&self, event_type: &str) {
+        let mut schedules = self.schedules.write().await;
+        schedules.remove(event_type);
+    }
+}
+
+async fn run_schedule(
+    config: ScheduleRecord,
+    sender: EventSender,
+    store: JobStore,
+    trigger: Arc<Notify>,
+) {
+    use chrono::Duration as ChronoDuration;
+
+    let schedule_id = config.id;
+    let mode = if config.periodic {
+        "periodic"
+    } else {
+        "one-shot"
+    };
+    info!(
+        "Schedule started for '{}' (id: {}) at {} ({})",
+        config.event_type, schedule_id, config.scheduled_time, mode
+    );
+
+    let mut next_time = config.scheduled_time;
+
+    loop {
+        let now = Utc::now();
+
+        if config.periodic {
+            while next_time <= now {
+                next_time = next_time + ChronoDuration::days(1);
+            }
+        }
+
+        let wait_duration = if next_time > now {
+            let duration = next_time - now;
+            Duration::from_secs(duration.num_seconds().max(0) as u64)
+        } else {
+            Duration::from_secs(0)
+        };
+
+        if wait_duration.as_secs() > 0 {
+            info!(
+                "Schedule '{}' waiting {}s until {}",
+                config.event_type,
+                wait_duration.as_secs(),
+                next_time
+            );
+
+            tokio::select! {
+                _ = sleep(wait_duration) => {
+                    info!("Schedule time reached for '{}'", config.event_type);
+                }
+                _ = trigger.notified() => {
+                    info!("Schedule manually triggered for '{}'", config.event_type);
+                }
+            }
+        } else {
+            info!(
+                "Schedule time already passed for '{}', triggering immediately",
+                config.event_type
+            );
+        }
+
+        let current_id = store.get_schedule_id(&config.event_type).await;
+        if current_id != Some(schedule_id) {
+            info!(
+                "Schedule '{}' (id: {}) is outdated or removed, stopping",
+                config.event_type, schedule_id
+            );
+            break;
+        }
+
+        if store.has_active_job(&config.event_type).await {
+            info!(
+                "Skipping schedule event for '{}': job already active",
+                config.event_type
+            );
+            if config.periodic {
+                next_time = next_time + ChronoDuration::days(1);
+                continue;
+            } else {
+                continue;
+            }
+        }
+
+        let event = Event::new(config.event_type.clone(), config.context.clone());
+        info!("Schedule producing event: {:?}", event.id);
+
+        if sender.send(event).await.is_err() {
+            warn!("Schedule channel closed for '{}'", config.event_type);
+            break;
+        }
+
+        if config.periodic {
+            info!(
+                "Schedule '{}' fired, next run at {}",
+                config.event_type,
+                next_time + ChronoDuration::days(1)
+            );
+
+            loop {
+                sleep(Duration::from_millis(100)).await;
+                if !store.has_active_job(&config.event_type).await {
+                    break;
+                }
+            }
+            next_time = next_time + ChronoDuration::days(1);
+        } else {
+            info!(
+                "Schedule '{}' fired (one-shot), stopping",
+                config.event_type
+            );
+            break;
+        }
     }
 }
 

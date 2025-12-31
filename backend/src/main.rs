@@ -17,7 +17,7 @@ use crate::api::create_api_router;
 use crate::config::get_db_path;
 use crate::consumer::{ConsumerControl, start_consumer};
 use crate::db::Database;
-use crate::producer::{TimerManager, create_http_producer_router};
+use crate::producer::{ScheduleManager, TimerManager, create_http_producer_router};
 use crate::queue::create_event_queue;
 use crate::store::JobStore;
 
@@ -44,12 +44,14 @@ async fn main() {
     let store = JobStore::new(db);
     store.load_handlers().await;
     let timers = store.load_timers().await;
+    let schedules = store.load_schedules().await;
 
     let handler_count = store.get_handlers().await.len();
     info!(
-        "Loaded {} handler(s) and {} timer(s) from database",
+        "Loaded {} handler(s), {} timer(s), and {} schedule(s) from database",
         handler_count,
-        timers.len()
+        timers.len(),
+        schedules.len()
     );
 
     let control = ConsumerControl::new();
@@ -61,6 +63,11 @@ async fn main() {
         timer_manager.register_timer(timer).await;
     }
 
+    let schedule_manager = ScheduleManager::new(sender.clone(), store.clone());
+    for schedule in schedules {
+        schedule_manager.register_schedule(schedule).await;
+    }
+
     let consumer_store = store.clone();
     let consumer_control = control.clone();
     tokio::spawn(async move {
@@ -69,7 +76,7 @@ async fn main() {
 
     let app = Router::new()
         .merge(create_http_producer_router(sender, timer_manager.clone()))
-        .merge(create_api_router(store, control, timer_manager));
+        .merge(create_api_router(store, control, timer_manager, schedule_manager));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     info!("Server listening on {}", addr);

@@ -7,9 +7,11 @@ use axum::{
 use serde::Serialize;
 use uuid::Uuid;
 
+use chrono::{DateTime, Utc};
+
 use crate::consumer::ConsumerControl;
 use crate::db::{Job, JobStatus};
-use crate::producer::TimerManager;
+use crate::producer::{ScheduleManager, TimerManager};
 use crate::store::JobStore;
 
 #[derive(Clone)]
@@ -17,6 +19,7 @@ pub struct ApiState {
     pub store: JobStore,
     pub control: ConsumerControl,
     pub timer_manager: TimerManager,
+    pub schedule_manager: ScheduleManager,
 }
 
 #[derive(Serialize)]
@@ -166,6 +169,7 @@ pub struct ReloadResponse {
     pub success: bool,
     pub handlers_loaded: usize,
     pub timers_loaded: usize,
+    pub schedules_loaded: usize,
 }
 
 async fn reload(State(state): State<ApiState>) -> Json<ReloadResponse> {
@@ -177,22 +181,54 @@ async fn reload(State(state): State<ApiState>) -> Json<ReloadResponse> {
         state.timer_manager.register_timer(timer.clone()).await;
     }
 
+    let schedules = state.store.load_schedules().await;
+    for schedule in &schedules {
+        state.schedule_manager.register_schedule(schedule.clone()).await;
+    }
+
     Json(ReloadResponse {
         success: true,
         handlers_loaded: handlers.len(),
         timers_loaded: timers.len(),
+        schedules_loaded: schedules.len(),
     })
+}
+
+#[derive(Serialize)]
+pub struct ScheduleResponse {
+    pub id: Uuid,
+    pub event_type: String,
+    pub context: String,
+    pub scheduled_time: DateTime<Utc>,
+    pub periodic: bool,
+}
+
+async fn get_schedules(State(state): State<ApiState>) -> Json<Vec<ScheduleResponse>> {
+    let schedules = state.store.get_schedules().await;
+    let responses: Vec<ScheduleResponse> = schedules
+        .into_iter()
+        .map(|s| ScheduleResponse {
+            id: s.id,
+            event_type: s.event_type,
+            context: s.context,
+            scheduled_time: s.scheduled_time,
+            periodic: s.periodic,
+        })
+        .collect();
+    Json(responses)
 }
 
 pub fn create_api_router(
     store: JobStore,
     control: ConsumerControl,
     timer_manager: TimerManager,
+    schedule_manager: ScheduleManager,
 ) -> Router {
     let state = ApiState {
         store,
         control,
         timer_manager,
+        schedule_manager,
     };
 
     Router::new()
@@ -205,6 +241,7 @@ pub fn create_api_router(
         .route("/consumer/stop", post(stop_consumer))
         .route("/handlers", get(get_handlers))
         .route("/timers", get(get_timers))
+        .route("/schedules", get(get_schedules))
         .route("/reload", post(reload))
         .with_state(state)
 }

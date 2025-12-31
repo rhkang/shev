@@ -5,13 +5,14 @@ use chrono::Utc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::db::{Database, Event, EventHandler, Job, JobStatus, TimerRecord};
+use crate::db::{Database, Event, EventHandler, Job, JobStatus, ScheduleRecord, TimerRecord};
 
 #[derive(Clone)]
 pub struct JobStore {
     db: Database,
     handlers: Arc<RwLock<HashMap<String, EventHandler>>>,
     timers: Arc<RwLock<HashMap<String, TimerRecord>>>,
+    schedules: Arc<RwLock<HashMap<String, ScheduleRecord>>>,
 }
 
 impl JobStore {
@@ -20,6 +21,7 @@ impl JobStore {
             db,
             handlers: Arc::new(RwLock::new(HashMap::new())),
             timers: Arc::new(RwLock::new(HashMap::new())),
+            schedules: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -136,5 +138,36 @@ impl JobStore {
 
     pub async fn get_timer_id(&self, event_type: &str) -> Option<Uuid> {
         self.db.get_timer_id(event_type).await
+    }
+
+    pub async fn load_schedules(&self) -> Vec<ScheduleRecord> {
+        let db_schedules = self.db.get_all_schedules().await;
+        let mut schedules = self.schedules.write().await;
+
+        schedules.clear();
+        for schedule in &db_schedules {
+            schedules.insert(schedule.event_type.clone(), schedule.clone());
+        }
+
+        db_schedules
+    }
+
+    pub async fn register_schedule(&self, schedule: ScheduleRecord) {
+        let mut schedules = self.schedules.write().await;
+        schedules.insert(schedule.event_type.clone(), schedule);
+    }
+
+    pub async fn get_schedule(&self, event_type: &str) -> Option<ScheduleRecord> {
+        let schedules = self.schedules.read().await;
+        schedules.get(event_type).cloned()
+    }
+
+    pub async fn get_schedules(&self) -> Vec<ScheduleRecord> {
+        let schedules = self.schedules.read().await;
+        schedules.values().cloned().collect()
+    }
+
+    pub async fn get_schedule_id(&self, event_type: &str) -> Option<Uuid> {
+        self.db.get_schedule_id(event_type).await
     }
 }

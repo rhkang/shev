@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-pub use shev_core::{Database as SyncDatabase, TimerRecord};
+pub use shev_core::{Database as SyncDatabase, ScheduleRecord, TimerRecord};
 pub use shev_core::{Event, EventHandler, Job, JobStatus};
 
 /// Async wrapper around the sync shev_core::Database
@@ -83,6 +83,16 @@ impl Database {
     pub async fn cancel_stale_jobs(&self) -> usize {
         let db = self.inner.lock().await;
         db.cancel_stale_jobs().unwrap_or(0)
+    }
+
+    pub async fn get_all_schedules(&self) -> Vec<ScheduleRecord> {
+        let db = self.inner.lock().await;
+        db.get_all_schedules().unwrap_or_default()
+    }
+
+    pub async fn get_schedule_id(&self, event_type: &str) -> Option<Uuid> {
+        let db = self.inner.lock().await;
+        db.get_schedule_id(event_type).ok().flatten()
     }
 }
 

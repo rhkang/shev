@@ -3,7 +3,7 @@ mod db;
 
 use clap::{Parser, Subcommand};
 
-use commands::{config, event, handler, job, timer};
+use commands::{config, event, handler, job, schedule, timer};
 
 const DEFAULT_URL: &str = "http://127.0.0.1:3000";
 
@@ -39,6 +39,11 @@ enum Commands {
         #[command(subcommand)]
         action: timer::TimerAction,
     },
+    /// Manage scheduled events
+    Schedule {
+        #[command(subcommand)]
+        action: schedule::ScheduleAction,
+    },
     /// Query jobs
     Job {
         #[command(subcommand)]
@@ -54,7 +59,7 @@ enum Commands {
         #[command(subcommand)]
         action: config::ConfigAction,
     },
-    /// Reload handlers/timers in running server
+    /// Reload handlers/timers/schedules in running server
     Reload,
 }
 
@@ -66,6 +71,7 @@ async fn main() {
     let result = match cli.command {
         Commands::Handler { action } => handler::execute(&cli.db, action),
         Commands::Timer { action } => timer::execute(&cli.db, action),
+        Commands::Schedule { action } => schedule::execute(&cli.db, action),
         Commands::Job { action } => job::execute(&cli.db, action),
         Commands::Event { action } => event::execute(&url, action).await,
         Commands::Config { action } => config::execute(&cli.db, action),
@@ -94,6 +100,7 @@ async fn reload(url: &str) -> Result<(), String> {
         println!("Reload successful:");
         println!("  Handlers loaded: {}", body["handlers_loaded"]);
         println!("  Timers loaded: {}", body["timers_loaded"]);
+        println!("  Schedules loaded: {}", body["schedules_loaded"]);
         Ok(())
     } else {
         Err(format!("Server returned error: {}", resp.status()))

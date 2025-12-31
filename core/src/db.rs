@@ -42,6 +42,16 @@ CREATE TABLE IF NOT EXISTS jobs (
     finished_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS schedules (
+    id TEXT PRIMARY KEY,
+    event_type TEXT UNIQUE NOT NULL,
+    context TEXT DEFAULT '',
+    scheduled_time TEXT NOT NULL,
+    periodic INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS config (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -66,6 +76,27 @@ impl TimerRecord {
             event_type,
             context,
             interval_secs,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ScheduleRecord {
+    pub id: Uuid,
+    pub event_type: String,
+    pub context: String,
+    pub scheduled_time: DateTime<Utc>,
+    pub periodic: bool,
+}
+
+impl ScheduleRecord {
+    pub fn new(event_type: String, context: String, scheduled_time: DateTime<Utc>, periodic: bool) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            event_type,
+            context,
+            scheduled_time,
+            periodic,
         }
     }
 }
@@ -410,6 +441,159 @@ impl Database {
                 })
             })
             .map_err(|e| format!("Failed to query timers: {}", e))?;
+
+        Ok(iter.filter_map(|r| r.ok()).collect())
+    }
+
+    // Schedule operations
+    pub fn insert_schedule(
+        &self,
+        event_type: &str,
+        scheduled_time: DateTime<Utc>,
+        context: &str,
+        periodic: bool,
+    ) -> Result<ScheduleRecord, String> {
+        let id = Uuid::new_v4();
+        let now = Utc::now().to_rfc3339();
+
+        self.conn
+            .execute(
+                r#"INSERT INTO schedules (id, event_type, context, scheduled_time, periodic, created_at, updated_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"#,
+                params![id.to_string(), event_type, context, scheduled_time.to_rfc3339(), periodic as i32, now, now],
+            )
+            .map_err(|e| format!("Failed to insert schedule: {}", e))?;
+
+        Ok(ScheduleRecord {
+            id,
+            event_type: event_type.to_string(),
+            context: context.to_string(),
+            scheduled_time,
+            periodic,
+        })
+    }
+
+    pub fn update_schedule(
+        &self,
+        event_type: &str,
+        scheduled_time: Option<DateTime<Utc>>,
+        context: Option<&str>,
+        periodic: Option<bool>,
+    ) -> Result<ScheduleRecord, String> {
+        let existing = self
+            .get_schedule(event_type)?
+            .ok_or_else(|| format!("Schedule '{}' not found", event_type))?;
+
+        let new_id = Uuid::new_v4();
+        let now = Utc::now().to_rfc3339();
+        let new_time = scheduled_time.unwrap_or(existing.scheduled_time);
+        let new_context = context.unwrap_or(&existing.context);
+        let new_periodic = periodic.unwrap_or(existing.periodic);
+
+        self.conn
+            .execute(
+                r#"UPDATE schedules SET id = ?1, context = ?2, scheduled_time = ?3, periodic = ?4, updated_at = ?5
+               WHERE event_type = ?6"#,
+                params![
+                    new_id.to_string(),
+                    new_context,
+                    new_time.to_rfc3339(),
+                    new_periodic as i32,
+                    now,
+                    event_type
+                ],
+            )
+            .map_err(|e| format!("Failed to update schedule: {}", e))?;
+
+        Ok(ScheduleRecord {
+            id: new_id,
+            event_type: event_type.to_string(),
+            context: new_context.to_string(),
+            scheduled_time: new_time,
+            periodic: new_periodic,
+        })
+    }
+
+    pub fn delete_schedule(&self, event_type: &str) -> Result<bool, String> {
+        let rows = self
+            .conn
+            .execute(
+                "DELETE FROM schedules WHERE event_type = ?1",
+                params![event_type],
+            )
+            .map_err(|e| format!("Failed to delete schedule: {}", e))?;
+        Ok(rows > 0)
+    }
+
+    pub fn get_schedule_id(&self, event_type: &str) -> Result<Option<Uuid>, String> {
+        self.conn
+            .query_row(
+                "SELECT id FROM schedules WHERE event_type = ?1",
+                params![event_type],
+                |row| {
+                    let id: String = row.get(0)?;
+                    Ok(Uuid::parse_str(&id).ok())
+                },
+            )
+            .optional()
+            .map_err(|e| format!("Failed to get schedule id: {}", e))
+            .map(|opt| opt.flatten())
+    }
+
+    pub fn get_schedule(&self, event_type: &str) -> Result<Option<ScheduleRecord>, String> {
+        self.conn
+            .query_row(
+                "SELECT id, event_type, context, scheduled_time, periodic FROM schedules WHERE event_type = ?1",
+                params![event_type],
+                |row| {
+                    let id: String = row.get(0)?;
+                    let event_type: String = row.get(1)?;
+                    let context: String = row.get(2)?;
+                    let scheduled_time: String = row.get(3)?;
+                    let periodic: i32 = row.get(4)?;
+
+                    Ok(ScheduleRecord {
+                        id: Uuid::parse_str(&id).unwrap_or_else(|_| Uuid::new_v4()),
+                        event_type,
+                        context,
+                        scheduled_time: DateTime::parse_from_rfc3339(&scheduled_time)
+                            .map(|t| t.with_timezone(&Utc))
+                            .unwrap_or_else(|_| Utc::now()),
+                        periodic: periodic != 0,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|e| format!("Failed to get schedule: {}", e))
+    }
+
+    pub fn get_all_schedules(&self) -> Result<Vec<ScheduleRecord>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, event_type, context, scheduled_time, periodic FROM schedules ORDER BY scheduled_time",
+            )
+            .map_err(|e| format!("Failed to prepare query: {}", e))?;
+
+        let iter = stmt
+            .query_map([], |row| {
+                let id: String = row.get(0)?;
+                let event_type: String = row.get(1)?;
+                let context: String = row.get(2)?;
+                let scheduled_time: String = row.get(3)?;
+                let periodic: i32 = row.get(4)?;
+
+                Ok(ScheduleRecord {
+                    id: Uuid::parse_str(&id).unwrap_or_else(|_| Uuid::new_v4()),
+                    event_type,
+                    context,
+                    scheduled_time: DateTime::parse_from_rfc3339(&scheduled_time)
+                        .map(|t| t.with_timezone(&Utc))
+                        .unwrap_or_else(|_| Utc::now()),
+                    periodic: periodic != 0,
+                })
+            })
+            .map_err(|e| format!("Failed to query schedules: {}", e))?;
 
         Ok(iter.filter_map(|r| r.ok()).collect())
     }
