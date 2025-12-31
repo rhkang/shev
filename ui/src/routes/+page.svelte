@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { api, type Status } from '$lib/api';
 
 	let status = $state<Status | null>(null);
@@ -29,6 +30,14 @@
 		}
 	}
 
+	function goToJobs(statusFilter?: string) {
+		if (statusFilter) {
+			goto(`/jobs?status=${statusFilter}`);
+		} else {
+			goto('/jobs');
+		}
+	}
+
 	onMount(() => {
 		fetchStatus();
 		const interval = setInterval(fetchStatus, 5000);
@@ -44,26 +53,26 @@
 	<p class="error">{error}</p>
 {:else if status}
 	<div class="stats-grid">
-		<div class="card stat-card">
+		<button class="card stat-card clickable" onclick={() => goToJobs()}>
 			<div class="stat-label">Total Jobs</div>
 			<div class="stat-value">{status.total_jobs}</div>
-		</div>
-		<div class="card stat-card">
+		</button>
+		<button class="card stat-card clickable" onclick={() => goToJobs('Pending')}>
 			<div class="stat-label">Pending</div>
 			<div class="stat-value pending">{status.pending_jobs}</div>
-		</div>
-		<div class="card stat-card">
+		</button>
+		<button class="card stat-card clickable" onclick={() => goToJobs('Running')}>
 			<div class="stat-label">Running</div>
 			<div class="stat-value running">{status.running_jobs}</div>
-		</div>
-		<div class="card stat-card">
+		</button>
+		<button class="card stat-card clickable" onclick={() => goToJobs('Completed')}>
 			<div class="stat-label">Completed</div>
 			<div class="stat-value completed">{status.completed_jobs}</div>
-		</div>
-		<div class="card stat-card">
+		</button>
+		<button class="card stat-card clickable" onclick={() => goToJobs('Failed')}>
 			<div class="stat-label">Failed</div>
 			<div class="stat-value failed">{status.failed_jobs}</div>
-		</div>
+		</button>
 	</div>
 
 	<div class="actions">
@@ -94,6 +103,18 @@
 
 	.stat-card {
 		text-align: center;
+	}
+
+	.stat-card.clickable {
+		cursor: pointer;
+		transition: transform 0.15s, box-shadow 0.15s;
+		border: 1px solid var(--border);
+	}
+
+	.stat-card.clickable:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+		border-color: var(--primary);
 	}
 
 	.stat-label {
