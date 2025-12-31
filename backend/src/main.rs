@@ -12,6 +12,7 @@ use std::net::SocketAddr;
 
 use axum::{Router, middleware as axum_middleware};
 use tokio::net::TcpListener;
+use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 
 use crate::middleware::{IpFilter, ip_filter_middleware};
@@ -82,10 +83,15 @@ async fn main() {
     });
 
     let ip_filter = IpFilter::new(args.allowed_ips.clone());
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
 
     let app = Router::new()
         .merge(create_http_producer_router(sender.clone()))
         .merge(create_api_router(store, control, timer_manager, schedule_manager, sender))
+        .layer(cors)
         .layer(axum_middleware::from_fn_with_state(ip_filter, ip_filter_middleware));
 
     let host = if args.listen { [0, 0, 0, 0] } else { [127, 0, 0, 1] };
