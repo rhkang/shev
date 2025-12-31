@@ -29,9 +29,10 @@ export interface Job {
 export interface EventHandler {
 	id: string;
 	event_type: string;
-	shell: 'Pwsh' | 'Bash' | 'Sh';
+	shell: string;
 	command: string;
 	timeout: number | null;
+	env: Record<string, string>;
 }
 
 export interface Timer {
@@ -71,6 +72,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 	return res.json();
 }
 
+export type JobStatus = Job['status'];
+
+export const JOB_STATUSES: JobStatus[] = ['Pending', 'Running', 'Completed', 'Failed', 'Cancelled'];
+
 export const api = {
 	// Status
 	getStatus: () => request<Status>('/status'),
@@ -90,12 +95,48 @@ export const api = {
 
 	// Handlers
 	getHandlers: () => request<EventHandler[]>('/handlers'),
+	createHandler: (data: { event_type: string; shell: string; command: string; timeout?: number; env?: Record<string, string> }) =>
+		request<EventHandler>('/handlers', {
+			method: 'POST',
+			body: JSON.stringify(data)
+		}),
+	updateHandler: (event_type: string, data: { shell?: string; command?: string; timeout?: number | null; env?: Record<string, string> }) =>
+		request<EventHandler>(`/handlers/${encodeURIComponent(event_type)}`, {
+			method: 'PUT',
+			body: JSON.stringify(data)
+		}),
+	deleteHandler: (event_type: string) =>
+		request<{ deleted: boolean }>(`/handlers/${encodeURIComponent(event_type)}`, { method: 'DELETE' }),
 
 	// Timers
 	getTimers: () => request<Timer[]>('/timers'),
+	createTimer: (data: { event_type: string; interval_secs: number; context?: string }) =>
+		request<Timer>('/timers', {
+			method: 'POST',
+			body: JSON.stringify(data)
+		}),
+	updateTimer: (event_type: string, data: { interval_secs?: number; context?: string }) =>
+		request<Timer>(`/timers/${encodeURIComponent(event_type)}`, {
+			method: 'PUT',
+			body: JSON.stringify(data)
+		}),
+	deleteTimer: (event_type: string) =>
+		request<{ deleted: boolean }>(`/timers/${encodeURIComponent(event_type)}`, { method: 'DELETE' }),
 
 	// Schedules
 	getSchedules: () => request<Schedule[]>('/schedules'),
+	createSchedule: (data: { event_type: string; scheduled_time: string; context?: string; periodic?: boolean }) =>
+		request<Schedule>('/schedules', {
+			method: 'POST',
+			body: JSON.stringify(data)
+		}),
+	updateSchedule: (event_type: string, data: { scheduled_time?: string; context?: string; periodic?: boolean }) =>
+		request<Schedule>(`/schedules/${encodeURIComponent(event_type)}`, {
+			method: 'PUT',
+			body: JSON.stringify(data)
+		}),
+	deleteSchedule: (event_type: string) =>
+		request<{ deleted: boolean }>(`/schedules/${encodeURIComponent(event_type)}`, { method: 'DELETE' }),
 
 	// Reload
 	reload: () => request<ReloadResult>('/reload', { method: 'POST' })

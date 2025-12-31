@@ -33,6 +33,12 @@ pub enum HandlerAction {
         /// Timeout in seconds
         #[arg(long, short)]
         timeout: Option<u64>,
+        /// Set environment variable (can be used multiple times): KEY=VALUE
+        #[arg(long, short)]
+        env: Option<Vec<String>>,
+        /// Clear all environment variables
+        #[arg(long)]
+        clear_env: bool,
     },
     /// Remove a handler
     Remove {
@@ -76,13 +82,37 @@ pub fn execute(db_path: &str, action: HandlerAction) -> Result<(), String> {
             shell,
             command,
             timeout,
+            env,
+            clear_env,
         } => {
             let shell = shell.map(|s| parse_shell(&s)).transpose()?;
+
+            let env_map = if clear_env {
+                Some(HashMap::new())
+            } else if let Some(env_vars) = env {
+                let existing = db
+                    .get_handler(&event_type)?
+                    .map(|h| h.env)
+                    .unwrap_or_default();
+                let mut new_env = existing;
+                for var in env_vars {
+                    if let Some((key, value)) = var.split_once('=') {
+                        new_env.insert(key.to_string(), value.to_string());
+                    } else {
+                        return Err(format!("Invalid env format '{}', use KEY=VALUE", var));
+                    }
+                }
+                Some(new_env)
+            } else {
+                None
+            };
+
             let handler = db.update_handler(
                 &event_type,
                 shell.as_ref(),
                 command.as_deref(),
                 timeout.map(Some),
+                env_map.as_ref(),
             )?;
             println!("Handler updated (new UUID generated):");
             println!("  ID: {}", handler.id);
@@ -91,6 +121,12 @@ pub fn execute(db_path: &str, action: HandlerAction) -> Result<(), String> {
             println!("  Command: {}", handler.command);
             if let Some(t) = handler.timeout {
                 println!("  Timeout: {}s", t);
+            }
+            if !handler.env.is_empty() {
+                println!("  Environment:");
+                for (k, v) in &handler.env {
+                    println!("    {}={}", k, v);
+                }
             }
         }
         HandlerAction::Remove { event_type } => {

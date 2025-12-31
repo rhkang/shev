@@ -2,9 +2,9 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::StatusCode,
-    routing::{get, post},
+    routing::{get, post, put},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use chrono::{DateTime, Utc};
@@ -12,7 +12,8 @@ use chrono::{DateTime, Utc};
 use crate::db::{Job, JobStatus};
 use crate::producer::{ScheduleManager, TimerManager};
 use crate::queue::EventSender;
-use crate::store::JobStore;
+use crate::store::{JobStore, Warning};
+use shev_core::ShellType;
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -101,21 +102,120 @@ pub struct HandlerResponse {
     pub id: Uuid,
     pub event_type: String,
     pub shell: String,
+    pub command: String,
     pub timeout: Option<u64>,
+    pub env: std::collections::HashMap<String, String>,
+}
+
+fn handler_to_response(h: crate::db::EventHandler) -> HandlerResponse {
+    HandlerResponse {
+        id: h.id,
+        event_type: h.event_type,
+        shell: format!("{:?}", h.shell).to_lowercase(),
+        command: h.command,
+        timeout: h.timeout,
+        env: h.env,
+    }
 }
 
 async fn get_handlers(State(state): State<ApiState>) -> Json<Vec<HandlerResponse>> {
     let handlers = state.store.get_handlers().await;
-    let responses: Vec<HandlerResponse> = handlers
-        .into_iter()
-        .map(|h| HandlerResponse {
-            id: h.id,
-            event_type: h.event_type,
-            shell: format!("{:?}", h.shell).to_lowercase(),
-            timeout: h.timeout,
-        })
-        .collect();
+    let responses: Vec<HandlerResponse> = handlers.into_iter().map(handler_to_response).collect();
     Json(responses)
+}
+
+#[derive(Deserialize)]
+pub struct CreateHandlerRequest {
+    pub event_type: String,
+    pub shell: String,
+    pub command: String,
+    pub timeout: Option<u64>,
+    #[serde(default)]
+    pub env: std::collections::HashMap<String, String>,
+}
+
+async fn create_handler(
+    State(state): State<ApiState>,
+    Json(request): Json<CreateHandlerRequest>,
+) -> Result<Json<HandlerResponse>, (StatusCode, String)> {
+    let shell = ShellType::from_str(&request.shell).ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Invalid shell type: {}", request.shell),
+        )
+    })?;
+
+    let handler = state
+        .store
+        .create_handler(
+            &request.event_type,
+            &shell,
+            &request.command,
+            request.timeout,
+            &request.env,
+        )
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(handler_to_response(handler)))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateHandlerRequest {
+    pub shell: Option<String>,
+    pub command: Option<String>,
+    pub timeout: Option<Option<u64>>,
+    pub env: Option<std::collections::HashMap<String, String>>,
+}
+
+async fn update_handler(
+    State(state): State<ApiState>,
+    Path(event_type): Path<String>,
+    Json(request): Json<UpdateHandlerRequest>,
+) -> Result<Json<HandlerResponse>, (StatusCode, String)> {
+    let shell = match &request.shell {
+        Some(s) => Some(ShellType::from_str(s).ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid shell type: {}", s),
+            )
+        })?),
+        None => None,
+    };
+
+    let handler = state
+        .store
+        .update_handler(
+            &event_type,
+            shell.as_ref(),
+            request.command.as_deref(),
+            request.timeout,
+            request.env.as_ref(),
+        )
+        .await
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+
+    Ok(Json(handler_to_response(handler)))
+}
+
+async fn delete_handler(
+    State(state): State<ApiState>,
+    Path(event_type): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let deleted = state
+        .store
+        .delete_handler(&event_type)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    if deleted {
+        Ok(Json(serde_json::json!({"deleted": true})))
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            format!("Handler '{}' not found", event_type),
+        ))
+    }
 }
 
 #[derive(Serialize)]
@@ -126,18 +226,94 @@ pub struct TimerResponse {
     pub interval_secs: u64,
 }
 
+fn timer_to_response(t: crate::db::TimerRecord) -> TimerResponse {
+    TimerResponse {
+        id: t.id,
+        event_type: t.event_type,
+        context: t.context,
+        interval_secs: t.interval_secs,
+    }
+}
+
 async fn get_timers(State(state): State<ApiState>) -> Json<Vec<TimerResponse>> {
     let timers = state.store.get_timers().await;
-    let responses: Vec<TimerResponse> = timers
-        .into_iter()
-        .map(|t| TimerResponse {
-            id: t.id,
-            event_type: t.event_type,
-            context: t.context,
-            interval_secs: t.interval_secs,
-        })
-        .collect();
+    let responses: Vec<TimerResponse> = timers.into_iter().map(timer_to_response).collect();
     Json(responses)
+}
+
+#[derive(Deserialize)]
+pub struct CreateTimerRequest {
+    pub event_type: String,
+    pub interval_secs: u64,
+    #[serde(default)]
+    pub context: String,
+}
+
+async fn create_timer(
+    State(state): State<ApiState>,
+    Json(request): Json<CreateTimerRequest>,
+) -> Result<Json<TimerResponse>, (StatusCode, String)> {
+    let timer = state
+        .store
+        .create_timer(&request.event_type, request.interval_secs, &request.context)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    state
+        .timer_manager
+        .register_timer(timer.clone(), state.sender.clone())
+        .await;
+
+    Ok(Json(timer_to_response(timer)))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateTimerRequest {
+    pub interval_secs: Option<u64>,
+    pub context: Option<String>,
+}
+
+async fn update_timer(
+    State(state): State<ApiState>,
+    Path(event_type): Path<String>,
+    Json(request): Json<UpdateTimerRequest>,
+) -> Result<Json<TimerResponse>, (StatusCode, String)> {
+    let timer = state
+        .store
+        .update_timer_record(
+            &event_type,
+            request.interval_secs,
+            request.context.as_deref(),
+        )
+        .await
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+
+    state
+        .timer_manager
+        .register_timer(timer.clone(), state.sender.clone())
+        .await;
+
+    Ok(Json(timer_to_response(timer)))
+}
+
+async fn delete_timer(
+    State(state): State<ApiState>,
+    Path(event_type): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let deleted = state
+        .store
+        .delete_timer(&event_type)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    if deleted {
+        Ok(Json(serde_json::json!({"deleted": true})))
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            format!("Timer '{}' not found", event_type),
+        ))
+    }
 }
 
 #[derive(Serialize)]
@@ -185,19 +361,119 @@ pub struct ScheduleResponse {
     pub periodic: bool,
 }
 
+fn schedule_to_response(s: crate::db::ScheduleRecord) -> ScheduleResponse {
+    ScheduleResponse {
+        id: s.id,
+        event_type: s.event_type,
+        context: s.context,
+        scheduled_time: s.scheduled_time,
+        periodic: s.periodic,
+    }
+}
+
 async fn get_schedules(State(state): State<ApiState>) -> Json<Vec<ScheduleResponse>> {
     let schedules = state.store.get_schedules().await;
-    let responses: Vec<ScheduleResponse> = schedules
-        .into_iter()
-        .map(|s| ScheduleResponse {
-            id: s.id,
-            event_type: s.event_type,
-            context: s.context,
-            scheduled_time: s.scheduled_time,
-            periodic: s.periodic,
-        })
-        .collect();
+    let responses: Vec<ScheduleResponse> =
+        schedules.into_iter().map(schedule_to_response).collect();
     Json(responses)
+}
+
+#[derive(Deserialize)]
+pub struct CreateScheduleRequest {
+    pub event_type: String,
+    pub scheduled_time: DateTime<Utc>,
+    #[serde(default)]
+    pub context: String,
+    #[serde(default)]
+    pub periodic: bool,
+}
+
+async fn create_schedule(
+    State(state): State<ApiState>,
+    Json(request): Json<CreateScheduleRequest>,
+) -> Result<Json<ScheduleResponse>, (StatusCode, String)> {
+    let schedule = state
+        .store
+        .create_schedule(
+            &request.event_type,
+            request.scheduled_time,
+            &request.context,
+            request.periodic,
+        )
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    state
+        .schedule_manager
+        .register_schedule(schedule.clone(), state.sender.clone())
+        .await;
+
+    Ok(Json(schedule_to_response(schedule)))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateScheduleRequest {
+    pub scheduled_time: Option<DateTime<Utc>>,
+    pub context: Option<String>,
+    pub periodic: Option<bool>,
+}
+
+async fn update_schedule(
+    State(state): State<ApiState>,
+    Path(event_type): Path<String>,
+    Json(request): Json<UpdateScheduleRequest>,
+) -> Result<Json<ScheduleResponse>, (StatusCode, String)> {
+    let schedule = state
+        .store
+        .update_schedule_record(
+            &event_type,
+            request.scheduled_time,
+            request.context.as_deref(),
+            request.periodic,
+        )
+        .await
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+
+    state
+        .schedule_manager
+        .register_schedule(schedule.clone(), state.sender.clone())
+        .await;
+
+    Ok(Json(schedule_to_response(schedule)))
+}
+
+async fn delete_schedule(
+    State(state): State<ApiState>,
+    Path(event_type): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let deleted = state
+        .store
+        .delete_schedule(&event_type)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    if deleted {
+        Ok(Json(serde_json::json!({"deleted": true})))
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            format!("Schedule '{}' not found", event_type),
+        ))
+    }
+}
+
+#[derive(Serialize)]
+pub struct HealthResponse {
+    pub healthy: bool,
+    pub warnings: Vec<Warning>,
+}
+
+async fn healthcheck(State(state): State<ApiState>) -> Json<HealthResponse> {
+    let warnings = state.store.get_warnings().await;
+    Json(HealthResponse {
+        healthy: warnings.is_empty(),
+        warnings,
+    })
 }
 
 pub fn create_api_router(
@@ -215,13 +491,29 @@ pub fn create_api_router(
 
     Router::new()
         .route("/status", get(get_status))
+        .route("/health", get(healthcheck))
         .route("/jobs", get(get_jobs))
         .route("/jobs/completed", get(get_completed_jobs))
         .route("/jobs/{job_id}", get(get_job))
         .route("/jobs/{job_id}/cancel", post(cancel_job))
-        .route("/handlers", get(get_handlers))
-        .route("/timers", get(get_timers))
-        .route("/schedules", get(get_schedules))
+        // Handlers CRUD
+        .route("/handlers", get(get_handlers).post(create_handler))
+        .route(
+            "/handlers/{event_type}",
+            put(update_handler).delete(delete_handler),
+        )
+        // Timers CRUD
+        .route("/timers", get(get_timers).post(create_timer))
+        .route(
+            "/timers/{event_type}",
+            put(update_timer).delete(delete_timer),
+        )
+        // Schedules CRUD
+        .route("/schedules", get(get_schedules).post(create_schedule))
+        .route(
+            "/schedules/{event_type}",
+            put(update_schedule).delete(delete_schedule),
+        )
         .route("/reload", post(reload))
         .with_state(state)
 }
