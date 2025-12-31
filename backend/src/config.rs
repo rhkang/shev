@@ -20,7 +20,7 @@ pub struct Args {
     /// Allowed IP addresses for write operations (POST/PUT/DELETE).
     /// These can register/trigger shell commands, so they have separate access control.
     /// If not set, only localhost can perform write operations.
-    /// Use --allow-write=0.0.0.0 to allow all (dangerous!).
+    /// If IP addresses are specified here, they are also allowed read access.
     #[arg(long = "allow-write")]
     pub allowed_write_ips: Vec<IpAddr>,
 }
