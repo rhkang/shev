@@ -3,15 +3,18 @@ mod config;
 mod consumer;
 mod db;
 mod executor;
+mod middleware;
 mod producer;
 mod queue;
 mod store;
 
 use std::net::SocketAddr;
 
-use axum::Router;
+use axum::{Router, middleware as axum_middleware};
 use tokio::net::TcpListener;
 use tracing::info;
+
+use crate::middleware::{IpFilter, ip_filter_middleware};
 
 use crate::api::create_api_router;
 use clap::Parser;
@@ -78,14 +81,20 @@ async fn main() {
         start_consumer(receiver, consumer_store, consumer_control).await;
     });
 
+    let ip_filter = IpFilter::new(args.allowed_ips.clone());
+
     let app = Router::new()
         .merge(create_http_producer_router(sender.clone()))
-        .merge(create_api_router(store, control, timer_manager, schedule_manager, sender));
+        .merge(create_api_router(store, control, timer_manager, schedule_manager, sender))
+        .layer(axum_middleware::from_fn_with_state(ip_filter, ip_filter_middleware));
 
     let host = if args.listen { [0, 0, 0, 0] } else { [127, 0, 0, 1] };
     let addr = SocketAddr::from((host, port));
     info!("Server listening on {}", addr);
+    if !args.allowed_ips.is_empty() {
+        info!("Allowed IPs: {:?}", args.allowed_ips);
+    }
 
     let listener = TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
 }

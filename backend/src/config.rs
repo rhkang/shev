@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -10,6 +11,10 @@ pub struct Args {
     /// Listen on all interfaces (0.0.0.0) instead of localhost only
     #[arg(short, long)]
     pub listen: bool,
+
+    /// Allowed IP addresses (can be specified multiple times). If not set, all IPs are allowed when --listen is used.
+    #[arg(long = "allow")]
+    pub allowed_ips: Vec<IpAddr>,
 }
 
 pub fn get_db_path() -> String {
