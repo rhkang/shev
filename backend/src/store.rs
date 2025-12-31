@@ -187,10 +187,6 @@ impl JobStore {
         self.db.get_jobs_by_status(status).await
     }
 
-    pub async fn get_completed_jobs(&self) -> Vec<Job> {
-        self.get_jobs_by_status(JobStatus::Completed).await
-    }
-
     pub async fn get_timer_id(&self, event_type: &str) -> Option<Uuid> {
         self.db.get_timer_id(event_type).await
     }
