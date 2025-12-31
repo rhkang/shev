@@ -12,9 +12,17 @@ pub struct Args {
     #[arg(short, long)]
     pub listen: bool,
 
-    /// Allowed IP addresses (can be specified multiple times). If not set, all IPs are allowed when --listen is used.
+    /// Allowed IP addresses for read-only API access (GET requests).
+    /// If not set, all IPs are allowed when --listen is used.
     #[arg(long = "allow")]
     pub allowed_ips: Vec<IpAddr>,
+
+    /// Allowed IP addresses for write operations (POST/PUT/DELETE).
+    /// These can register/trigger shell commands, so they have separate access control.
+    /// If not set, only localhost can perform write operations.
+    /// Use --allow-write=0.0.0.0 to allow all (dangerous!).
+    #[arg(long = "allow-write")]
+    pub allowed_write_ips: Vec<IpAddr>,
 }
 
 pub fn get_db_path() -> String {
