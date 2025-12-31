@@ -4,7 +4,7 @@ use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
 
-use crate::models::EventHandler;
+use crate::db::EventHandler;
 
 #[derive(Debug)]
 pub struct ExecutionResult {
@@ -33,7 +33,9 @@ pub async fn execute_command(
     }
 
     let future = async {
-        let child = cmd.spawn().map_err(|e| format!("Failed to spawn process: {}", e))?;
+        let child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to spawn process: {}", e))?;
         child
             .wait_with_output()
             .await
@@ -43,12 +45,7 @@ pub async fn execute_command(
     let output = if let Some(timeout_secs) = handler.timeout {
         match timeout(Duration::from_secs(timeout_secs), future).await {
             Ok(result) => result?,
-            Err(_) => {
-                return Err(format!(
-                    "Command timed out after {} seconds",
-                    timeout_secs
-                ))
-            }
+            Err(_) => return Err(format!("Command timed out after {} seconds", timeout_secs)),
         }
     } else {
         future.await?

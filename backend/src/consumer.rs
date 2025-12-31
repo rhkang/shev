@@ -1,10 +1,10 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tracing::{error, info, warn};
 
+use crate::db::JobStatus;
 use crate::executor::execute_command;
-use crate::models::JobStatus;
 use crate::queue::EventReceiver;
 use crate::store::JobStore;
 
@@ -52,7 +52,10 @@ pub async fn start_consumer(
             continue;
         }
 
-        info!("Processing event: {:?} (type: {})", event.id, event.event_type);
+        info!(
+            "Processing event: {:?} (type: {})",
+            event.id, event.event_type
+        );
 
         let handler = match store.get_handler(&event.event_type).await {
             Some(h) => h,
@@ -62,10 +65,10 @@ pub async fn start_consumer(
             }
         };
 
-        let job = store.create_job(event.clone(), handler.clone()).await;
+        let job = store.create_job(event.clone(), &handler).await;
         let job_id = job.id;
 
-        info!("Created job: {:?}", job_id);
+        info!("Created job: {:?} (handler: {:?})", job_id, handler.id);
 
         if let Some(j) = store.get_job(job_id).await {
             if j.status == JobStatus::Cancelled {

@@ -1,6 +1,6 @@
 use tokio::sync::mpsc;
 
-use crate::models::Event;
+use crate::db::Event;
 
 pub type EventSender = mpsc::Sender<Event>;
 pub type EventReceiver = mpsc::Receiver<Event>;

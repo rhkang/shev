@@ -8,16 +8,9 @@ use tokio::sync::{Notify, RwLock};
 use tokio::time::sleep;
 use tracing::{info, warn};
 
-use crate::models::Event;
+use crate::db::{Event, TimerRecord};
 use crate::queue::EventSender;
 use crate::store::JobStore;
-
-#[derive(Debug, Clone)]
-pub struct TimerProducerConfig {
-    pub event_type: String,
-    pub context: String,
-    pub interval_secs: u64,
-}
 
 #[derive(Debug)]
 struct TimerState {
@@ -40,8 +33,30 @@ impl TimerManager {
         }
     }
 
-    pub async fn register_timer(&self, config: TimerProducerConfig) {
+    pub async fn register_timer(&self, config: TimerRecord) {
         let event_type = config.event_type.clone();
+        let timer_id = config.id;
+
+        {
+            let existing_timer = self.store.get_timer(&event_type).await;
+            if let Some(existing) = existing_timer {
+                if existing.id == timer_id {
+                    info!(
+                        "Timer '{}' (id: {}) already running, skipping",
+                        event_type, timer_id
+                    );
+                    return;
+                }
+
+                info!(
+                    "Timer '{}' updated (old: {}, new: {}), old will stop on next cycle",
+                    event_type, existing.id, timer_id
+                );
+            }
+        }
+
+        info!("Starting timer '{}' (id: {})", event_type, timer_id);
+
         let trigger = Arc::new(Notify::new());
 
         let state = Arc::new(TimerState {
@@ -52,6 +67,8 @@ impl TimerManager {
             let mut timers = self.timers.write().await;
             timers.insert(event_type.clone(), state);
         }
+
+        self.store.register_timer(config.clone()).await;
 
         let sender = self.sender.clone();
         let store = self.store.clone();
@@ -86,14 +103,15 @@ impl TimerManager {
 }
 
 async fn run_timer(
-    config: TimerProducerConfig,
+    config: TimerRecord,
     sender: EventSender,
     store: JobStore,
     trigger: Arc<Notify>,
 ) {
+    let timer_id = config.id;
     info!(
-        "Timer started for '{}' with interval {}s",
-        config.event_type, config.interval_secs
+        "Timer started for '{}' (id: {}) with interval {}s",
+        config.event_type, timer_id, config.interval_secs
     );
 
     loop {
@@ -104,6 +122,15 @@ async fn run_timer(
             _ = trigger.notified() => {
                 info!("Timer manually triggered for '{}'", config.event_type);
             }
+        }
+
+        let current_id = store.get_timer_id(&config.event_type).await;
+        if current_id != Some(timer_id) {
+            info!(
+                "Timer '{}' (id: {}) is outdated, stopping",
+                config.event_type, timer_id
+            );
+            break;
         }
 
         if store.has_active_job(&config.event_type).await {
