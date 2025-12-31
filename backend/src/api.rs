@@ -9,7 +9,6 @@ use uuid::Uuid;
 
 use chrono::{DateTime, Utc};
 
-use crate::consumer::ConsumerControl;
 use crate::db::{Job, JobStatus};
 use crate::producer::{ScheduleManager, TimerManager};
 use crate::queue::EventSender;
@@ -18,7 +17,6 @@ use crate::store::JobStore;
 #[derive(Clone)]
 pub struct ApiState {
     pub store: JobStore,
-    pub control: ConsumerControl,
     pub timer_manager: TimerManager,
     pub schedule_manager: ScheduleManager,
     pub sender: EventSender,
@@ -26,7 +24,6 @@ pub struct ApiState {
 
 #[derive(Serialize)]
 pub struct StatusResponse {
-    pub consumer_running: bool,
     pub total_jobs: usize,
     pub pending_jobs: usize,
     pub running_jobs: usize,
@@ -55,7 +52,6 @@ async fn get_status(State(state): State<ApiState>) -> Json<StatusResponse> {
         .count();
 
     Json(StatusResponse {
-        consumer_running: state.control.is_running(),
         total_jobs: jobs.len(),
         pending_jobs: pending,
         running_jobs: running,
@@ -98,28 +94,6 @@ async fn cancel_job(
     } else {
         Err(StatusCode::BAD_REQUEST)
     }
-}
-
-#[derive(Serialize)]
-pub struct ControlResponse {
-    pub success: bool,
-    pub consumer_running: bool,
-}
-
-async fn start_consumer(State(state): State<ApiState>) -> Json<ControlResponse> {
-    state.control.start();
-    Json(ControlResponse {
-        success: true,
-        consumer_running: true,
-    })
-}
-
-async fn stop_consumer(State(state): State<ApiState>) -> Json<ControlResponse> {
-    state.control.stop();
-    Json(ControlResponse {
-        success: true,
-        consumer_running: false,
-    })
 }
 
 #[derive(Serialize)]
@@ -228,14 +202,12 @@ async fn get_schedules(State(state): State<ApiState>) -> Json<Vec<ScheduleRespon
 
 pub fn create_api_router(
     store: JobStore,
-    control: ConsumerControl,
     timer_manager: TimerManager,
     schedule_manager: ScheduleManager,
     sender: EventSender,
 ) -> Router {
     let state = ApiState {
         store,
-        control,
         timer_manager,
         schedule_manager,
         sender,
@@ -247,8 +219,6 @@ pub fn create_api_router(
         .route("/jobs/completed", get(get_completed_jobs))
         .route("/jobs/{job_id}", get(get_job))
         .route("/jobs/{job_id}/cancel", post(cancel_job))
-        .route("/consumer/start", post(start_consumer))
-        .route("/consumer/stop", post(stop_consumer))
         .route("/handlers", get(get_handlers))
         .route("/timers", get(get_timers))
         .route("/schedules", get(get_schedules))

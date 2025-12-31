@@ -21,7 +21,7 @@ use crate::api::create_api_router;
 use clap::Parser;
 
 use crate::config::{Args, get_db_path};
-use crate::consumer::{ConsumerControl, start_consumer};
+use crate::consumer::start_consumer;
 use crate::db::Database;
 use crate::producer::{ScheduleManager, TimerManager, create_http_producer_router};
 use crate::queue::create_event_queue;
@@ -62,8 +62,6 @@ async fn main() {
         schedules.len()
     );
 
-    let control = ConsumerControl::new();
-
     let (sender, receiver) = create_event_queue(queue_size);
 
     let timer_manager = TimerManager::new(store.clone());
@@ -77,9 +75,8 @@ async fn main() {
     }
 
     let consumer_store = store.clone();
-    let consumer_control = control.clone();
     tokio::spawn(async move {
-        start_consumer(receiver, consumer_store, consumer_control).await;
+        start_consumer(receiver, consumer_store).await;
     });
 
     let ip_filter = IpFilter::new(args.allowed_ips.clone());
@@ -90,7 +87,7 @@ async fn main() {
 
     let app = Router::new()
         .merge(create_http_producer_router(sender.clone()))
-        .merge(create_api_router(store, control, timer_manager, schedule_manager, sender))
+        .merge(create_api_router(store, timer_manager, schedule_manager, sender))
         .layer(cors)
         .layer(axum_middleware::from_fn_with_state(ip_filter, ip_filter_middleware));
 

@@ -1,7 +1,6 @@
 const BASE_URL = '/api';
 
 export interface Status {
-	consumer_running: boolean;
 	total_jobs: number;
 	pending_jobs: number;
 	running_jobs: number;
@@ -97,10 +96,6 @@ export const api = {
 
 	// Schedules
 	getSchedules: () => request<Schedule[]>('/schedules'),
-
-	// Consumer
-	startConsumer: () => request<{ message: string }>('/consumer/start', { method: 'POST' }),
-	stopConsumer: () => request<{ message: string }>('/consumer/stop', { method: 'POST' }),
 
 	// Reload
 	reload: () => request<ReloadResult>('/reload', { method: 'POST' })
