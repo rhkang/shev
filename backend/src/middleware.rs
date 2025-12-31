@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{ConnectInfo, Request, State},
-    http::StatusCode,
+    http::{Method, StatusCode},
     middleware::Next,
     response::Response,
 };
@@ -11,27 +11,36 @@ use std::net::SocketAddr;
 
 #[derive(Clone)]
 pub struct IpFilter {
-    allowed: Arc<Vec<IpAddr>>,
+    allowed_read: Arc<Vec<IpAddr>>,
+    allowed_write: Arc<Vec<IpAddr>>,
 }
 
 impl IpFilter {
-    pub fn new(allowed: Vec<IpAddr>) -> Self {
+    pub fn new(allowed_read: Vec<IpAddr>, allowed_write: Vec<IpAddr>) -> Self {
         Self {
-            allowed: Arc::new(allowed),
+            allowed_read: Arc::new(allowed_read),
+            allowed_write: Arc::new(allowed_write),
         }
     }
 
-    pub fn is_allowed(&self, ip: IpAddr) -> bool {
-        if self.allowed.is_empty() {
-            return true;
-        }
+    fn is_write_method(method: &Method) -> bool {
+        matches!(method, &Method::POST | &Method::PUT | &Method::DELETE)
+    }
 
-        // Always allow localhost
+    pub fn is_allowed(&self, ip: IpAddr, method: &Method) -> bool {
         if ip.is_loopback() {
             return true;
         }
 
-        self.allowed.contains(&ip)
+        if self.allowed_write.contains(&ip) {
+            return true;
+        }
+
+        if Self::is_write_method(method) {
+            false
+        } else {
+            self.allowed_read.is_empty() || self.allowed_read.contains(&ip)
+        }
     }
 }
 
@@ -41,10 +50,11 @@ pub async fn ip_filter_middleware(
     request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    if filter.is_allowed(addr.ip()) {
+    let method = request.method().clone();
+    if filter.is_allowed(addr.ip(), &method) {
         Ok(next.run(request).await)
     } else {
-        tracing::warn!("Blocked request from {}", addr.ip());
+        tracing::warn!("Blocked {} request from {}", method, addr.ip());
         Err(StatusCode::FORBIDDEN)
     }
 }

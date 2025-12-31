@@ -79,7 +79,7 @@ async fn main() {
         start_consumer(receiver, consumer_store).await;
     });
 
-    let ip_filter = IpFilter::new(args.allowed_ips.clone());
+    let ip_filter = IpFilter::new(args.allowed_ips.clone(), args.allowed_write_ips.clone());
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -95,7 +95,12 @@ async fn main() {
     let addr = SocketAddr::from((host, port));
     info!("Server listening on {}", addr);
     if !args.allowed_ips.is_empty() {
-        info!("Allowed IPs: {:?}", args.allowed_ips);
+        info!("Allowed read IPs: {:?}", args.allowed_ips);
+    }
+    if !args.allowed_write_ips.is_empty() {
+        info!("Allowed write IPs: {:?}", args.allowed_write_ips);
+    } else if args.listen {
+        info!("Write operations restricted to localhost only");
     }
 
     let listener = TcpListener::bind(addr).await.unwrap();
