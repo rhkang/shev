@@ -115,6 +115,14 @@ async fn run_timer(config: TimerRecord, sender: EventSender, store: JobStore) {
             break;
         }
 
+        if !store.has_handler(&config.event_type).await {
+            warn!(
+                "Timer '{}': No handler found, skipping event",
+                config.event_type
+            );
+            continue;
+        }
+
         let event = Event::new(config.event_type.clone(), config.context.clone());
         info!("Timer producing event: {:?}", event.id);
 
@@ -174,6 +182,19 @@ async fn run_schedule(config: ScheduleRecord, sender: EventSender, store: JobSto
                 config.event_type, schedule_id
             );
             break;
+        }
+
+        if !store.has_handler(&config.event_type).await {
+            warn!(
+                "Schedule '{}': No handler found, skipping event",
+                config.event_type
+            );
+            if config.periodic {
+                next_time = next_time + ChronoDuration::days(1);
+                continue;
+            } else {
+                break;
+            }
         }
 
         let event = Event::new(config.event_type.clone(), config.context.clone());
