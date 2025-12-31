@@ -126,7 +126,7 @@
 								checked={selectedStatuses.has(status)}
 								onchange={() => toggleStatus(status)}
 							/>
-							<span class="badge {status.toLowerCase()}">{status}</span>
+							<span class="badge {status}">{status}</span>
 						</label>
 					{/each}
 				</div>
@@ -161,12 +161,12 @@
 						<td><a href="/jobs/{job.id}">{job.id.slice(0, 8)}...</a></td>
 						<td>{job.event.event_type}</td>
 						<td>
-							<span class="badge {job.status.toLowerCase()}">{job.status}</span>
+							<span class="badge {job.status}">{job.status}</span>
 						</td>
 						<td>{formatDate(job.started_at)}</td>
 						<td>{formatDate(job.finished_at)}</td>
 						<td>
-							{#if job.status === 'Pending' || job.status === 'Running'}
+							{#if job.status === 'pending' || job.status === 'running'}
 								<button class="danger small" onclick={() => cancelJob(job.id)}>Cancel</button>
 							{/if}
 						</td>
