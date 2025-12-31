@@ -2,6 +2,21 @@
 
 Event-driven shell command executor
 
+## Installation
+
+Using [just](https://github.com/casey/just):
+
+```sh
+just install
+```
+
+Or manually with cargo:
+
+```sh
+cargo install --path backend
+cargo install --path cli
+```
+
 ## Features
 
 - Execute shell commands in response to events
