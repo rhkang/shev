@@ -2,12 +2,13 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 // ============================================================================
 // Handler types
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct HandlerResponse {
     pub id: String,
     pub event_type: String,
@@ -17,7 +18,7 @@ pub struct HandlerResponse {
     pub env: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateHandlerRequest {
     pub event_type: String,
     pub shell: String,
@@ -27,7 +28,7 @@ pub struct CreateHandlerRequest {
     pub env: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateHandlerRequest {
     pub shell: Option<String>,
     pub command: Option<String>,
@@ -39,7 +40,7 @@ pub struct UpdateHandlerRequest {
 // Timer types
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TimerResponse {
     pub id: String,
     pub event_type: String,
@@ -47,7 +48,7 @@ pub struct TimerResponse {
     pub context: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateTimerRequest {
     pub event_type: String,
     pub interval_secs: u32,
@@ -55,7 +56,7 @@ pub struct CreateTimerRequest {
     pub context: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateTimerRequest {
     pub interval_secs: Option<u32>,
     pub context: Option<String>,
@@ -65,7 +66,7 @@ pub struct UpdateTimerRequest {
 // Schedule types
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ScheduleResponse {
     pub id: String,
     pub event_type: String,
@@ -74,7 +75,7 @@ pub struct ScheduleResponse {
     pub periodic: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateScheduleRequest {
     pub event_type: String,
     pub scheduled_time: DateTime<Utc>,
@@ -84,7 +85,7 @@ pub struct CreateScheduleRequest {
     pub periodic: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateScheduleRequest {
     pub scheduled_time: Option<DateTime<Utc>>,
     pub context: Option<String>,
@@ -95,7 +96,7 @@ pub struct UpdateScheduleRequest {
 // Job types
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct JobResponse {
     pub id: String,
     pub event: EventResponse,
@@ -107,7 +108,7 @@ pub struct JobResponse {
     pub finished_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct EventResponse {
     pub id: String,
     pub event_type: String,
@@ -119,13 +120,13 @@ pub struct EventResponse {
 // Config types
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ConfigResponse {
     pub port: String,
     pub queue_size: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateConfigRequest {
     pub port: Option<String>,
     pub queue_size: Option<String>,
@@ -135,7 +136,7 @@ pub struct UpdateConfigRequest {
 // Status types
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct StatusResponse {
     pub total_jobs: usize,
     pub pending_jobs: usize,
@@ -148,14 +149,14 @@ pub struct StatusResponse {
 // Event trigger types
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TriggerEventRequest {
     pub event_type: String,
     #[serde(default)]
     pub context: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TriggerEventResponse {
     pub triggered: bool,
     pub message: String,
@@ -165,7 +166,7 @@ pub struct TriggerEventResponse {
 // Reload types
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ReloadResponse {
     pub success: bool,
     pub handlers_loaded: usize,
@@ -177,12 +178,12 @@ pub struct ReloadResponse {
 // Health types
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 pub enum WarningKind {
     MissingHandler,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Warning {
     pub kind: WarningKind,
     pub event_type: String,
@@ -204,7 +205,7 @@ impl Warning {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct HealthResponse {
     pub healthy: bool,
     pub warnings: Vec<Warning>,

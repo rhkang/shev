@@ -10,10 +10,12 @@ mod store;
 
 use std::net::SocketAddr;
 
-use axum::{Router, middleware as axum_middleware};
+use axum::middleware as axum_middleware;
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 use crate::middleware::{IpFilter, ip_filter_middleware};
 
@@ -23,9 +25,56 @@ use clap::Parser;
 use crate::config::{Args, get_db_path};
 use crate::consumer::start_consumer;
 use crate::db::Database;
-use crate::producer::{ScheduleManager, TimerManager, create_http_producer_router};
+use crate::producer::{ScheduleManager, TimerManager};
 use crate::queue::create_event_queue;
 use crate::store::JobStore;
+
+#[derive(OpenApi)]
+#[openapi(
+    info(
+        title = "Shev API",
+        description = "Event-driven shell command executor",
+        version = "0.1.0"
+    ),
+    components(schemas(
+        // Core models
+        shev_core::Job,
+        shev_core::Event,
+        shev_core::JobStatus,
+        shev_core::ShellType,
+        shev_core::EventHandler,
+        // API types
+        shev_core::api::StatusResponse,
+        shev_core::api::HealthResponse,
+        shev_core::api::Warning,
+        shev_core::api::WarningKind,
+        shev_core::api::HandlerResponse,
+        shev_core::api::CreateHandlerRequest,
+        shev_core::api::UpdateHandlerRequest,
+        shev_core::api::TimerResponse,
+        shev_core::api::CreateTimerRequest,
+        shev_core::api::UpdateTimerRequest,
+        shev_core::api::ScheduleResponse,
+        shev_core::api::CreateScheduleRequest,
+        shev_core::api::UpdateScheduleRequest,
+        shev_core::api::ConfigResponse,
+        shev_core::api::UpdateConfigRequest,
+        shev_core::api::ReloadResponse,
+        // API types (local)
+        api::EventRequest,
+        api::EventResponse,
+    )),
+    tags(
+        (name = "Status", description = "System status and health"),
+        (name = "Jobs", description = "Job management"),
+        (name = "Handlers", description = "Event handler management"),
+        (name = "Timers", description = "Timer-based event producers"),
+        (name = "Schedules", description = "Scheduled event producers"),
+        (name = "Config", description = "System configuration"),
+        (name = "Events", description = "Event triggering")
+    )
+)]
+struct ApiDoc;
 
 #[tokio::main]
 async fn main() {
@@ -71,7 +120,9 @@ async fn main() {
 
     let schedule_manager = ScheduleManager::new(store.clone());
     for schedule in schedules {
-        schedule_manager.register_schedule(schedule, sender.clone()).await;
+        schedule_manager
+            .register_schedule(schedule, sender.clone())
+            .await;
     }
 
     let consumer_store = store.clone();
@@ -85,13 +136,26 @@ async fn main() {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = Router::new()
-        .merge(create_http_producer_router(sender.clone()))
-        .merge(create_api_router(store, timer_manager, schedule_manager, sender))
-        .layer(cors)
-        .layer(axum_middleware::from_fn_with_state(ip_filter, ip_filter_middleware));
+    // Merge OpenAPI routers and extract combined spec
+    let (router, openapi) =
+        create_api_router(store, timer_manager, schedule_manager, sender).split_for_parts();
 
-    let host = if args.listen { [0, 0, 0, 0] } else { [127, 0, 0, 1] };
+    // Combine auto-collected paths with base ApiDoc (schemas, tags, info)
+    let openapi = ApiDoc::openapi().nest("/", openapi);
+
+    let app = router
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi))
+        .layer(cors)
+        .layer(axum_middleware::from_fn_with_state(
+            ip_filter,
+            ip_filter_middleware,
+        ));
+
+    let host = if args.listen {
+        [0, 0, 0, 0]
+    } else {
+        [127, 0, 0, 1]
+    };
     let addr = SocketAddr::from((host, port));
     info!("Server listening on {}", addr);
     if !args.allowed_ips.is_empty() {
@@ -104,5 +168,10 @@ async fn main() {
     }
 
     let listener = TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }

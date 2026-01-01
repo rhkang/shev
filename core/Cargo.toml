@@ -13,3 +13,4 @@ serde_with.workspace = true
 reqwest.workspace = true
 url.workspace = true
 serde_repr.workspace = true
+utoipa.workspace = true

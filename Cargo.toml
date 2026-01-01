@@ -21,6 +21,11 @@ url = "2"
 serde_repr = "0.1"
 serde_with = "3"
 
+# OpenAPI
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-axum = "0.2"
+utoipa-swagger-ui = { version = "9", features = ["axum"] }
+
 # CLI
 clap = { version = "4", features = ["derive", "env"] }
 

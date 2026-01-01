@@ -1,8 +1,6 @@
 use std::time::Duration;
 
-use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 use tracing::{info, warn};
 
@@ -220,50 +218,4 @@ async fn run_schedule(config: ScheduleRecord, sender: EventSender, store: JobSto
             break;
         }
     }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct EventRequest {
-    pub event_type: String,
-    #[serde(default)]
-    pub context: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct EventResponse {
-    #[serde(flatten)]
-    pub event: Event,
-    pub message: String,
-}
-
-#[derive(Clone)]
-pub struct HttpProducerState {
-    pub sender: EventSender,
-}
-
-async fn handle_event(
-    State(state): State<HttpProducerState>,
-    Json(request): Json<EventRequest>,
-) -> Result<Json<EventResponse>, StatusCode> {
-    let event = Event::new(request.event_type, request.context);
-    info!("HTTP producing event: {:?}", event.id);
-
-    state
-        .sender
-        .send(event.clone())
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    Ok(Json(EventResponse {
-        event,
-        message: "Event queued".to_string(),
-    }))
-}
-
-pub fn create_http_producer_router(sender: EventSender) -> Router {
-    let state = HttpProducerState { sender };
-
-    Router::new()
-        .route("/events", post(handle_event))
-        .with_state(state)
 }
