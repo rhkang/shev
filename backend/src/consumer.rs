@@ -49,7 +49,7 @@ pub async fn start_consumer(mut receiver: EventReceiver, store: JobStore) {
                         } else {
                             result.stderr
                         };
-                        error!("Job {:?} failed: {}", job_id, error_msg);
+                        error!("Job {:?} failed", job_id);
                         store.mark_failed(job_id, error_msg).await;
                     }
                 }

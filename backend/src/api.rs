@@ -66,10 +66,7 @@ pub struct JobsQuery {
     pub status: Option<String>,
 }
 
-async fn get_jobs(
-    State(state): State<ApiState>,
-    Query(query): Query<JobsQuery>,
-) -> Json<Vec<Job>> {
+async fn get_jobs(State(state): State<ApiState>, Query(query): Query<JobsQuery>) -> Json<Vec<Job>> {
     let jobs = match &query.status {
         Some(status_str) => {
             if let Some(status) = JobStatus::from_str(status_str) {
