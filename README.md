@@ -91,13 +91,3 @@ shev --url http://127.0.0.1:3000 reload
 ### core
 
 Shared library containing database operations and model definitions. Used by both backend and cli.
-
-### ui
-
-Web dashboard for managing and monitoring shev. Built with SvelteKit.
-
-```sh
-cd ui
-npm install
-npm run dev
-```
