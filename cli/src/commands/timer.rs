@@ -1,5 +1,5 @@
 use clap::Subcommand;
-use serde::{Deserialize, Serialize};
+use shev_core::api::{CreateTimerRequest, TimerResponse, UpdateTimerRequest};
 
 #[derive(Subcommand)]
 pub enum TimerAction {
@@ -9,7 +9,7 @@ pub enum TimerAction {
         event_type: String,
         /// Interval in seconds
         #[arg(long, short)]
-        interval: u64,
+        interval: u32,
         /// Context to pass to handler
         #[arg(long, short, default_value = "")]
         context: String,
@@ -20,7 +20,7 @@ pub enum TimerAction {
         event_type: String,
         /// Interval in seconds
         #[arg(long, short)]
-        interval: Option<u64>,
+        interval: Option<u32>,
         /// Context to pass to handler
         #[arg(long, short)]
         context: Option<String>,
@@ -37,27 +37,6 @@ pub enum TimerAction {
         /// Event type name
         event_type: String,
     },
-}
-
-#[derive(Serialize)]
-struct CreateTimerRequest {
-    event_type: String,
-    interval_secs: u64,
-    context: String,
-}
-
-#[derive(Serialize)]
-struct UpdateTimerRequest {
-    interval_secs: Option<u64>,
-    context: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct TimerResponse {
-    id: String,
-    event_type: String,
-    interval_secs: u64,
-    context: String,
 }
 
 fn print_timer(timer: &TimerResponse) {

@@ -1,5 +1,5 @@
 use clap::Subcommand;
-use serde::{Deserialize, Serialize};
+use shev_core::api::{ConfigResponse, UpdateConfigRequest};
 
 #[derive(Subcommand)]
 pub enum ConfigAction {
@@ -12,18 +12,6 @@ pub enum ConfigAction {
         /// Configuration value
         value: String,
     },
-}
-
-#[derive(Deserialize)]
-struct ConfigResponse {
-    port: String,
-    queue_size: String,
-}
-
-#[derive(Serialize)]
-struct UpdateConfigRequest {
-    port: Option<String>,
-    queue_size: Option<String>,
 }
 
 pub async fn execute(url: &str, action: ConfigAction) -> Result<(), String> {

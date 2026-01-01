@@ -8,9 +8,9 @@ name = "shev"
 path = "src/main.rs"
 
 [dependencies]
+shev-core.workspace = true
 clap.workspace = true
 chrono.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

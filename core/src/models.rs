@@ -66,7 +66,7 @@ pub struct EventHandler {
     #[serde(skip_serializing)]
     pub command: String,
     #[serde(default)]
-    pub timeout: Option<u64>,
+    pub timeout: Option<u32>,
     #[serde(default, skip_serializing)]
     pub env: HashMap<String, String>,
 }
@@ -76,7 +76,7 @@ impl EventHandler {
         event_type: String,
         shell: ShellType,
         command: String,
-        timeout: Option<u64>,
+        timeout: Option<u32>,
         env: HashMap<String, String>,
     ) -> Self {
         Self {

@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use clap::Subcommand;
-use serde::{Deserialize, Serialize};
+use shev_core::api::{CreateScheduleRequest, ScheduleResponse, UpdateScheduleRequest};
 
 #[derive(Subcommand)]
 pub enum ScheduleAction {
@@ -55,30 +55,6 @@ fn parse_time(time_str: &str) -> Result<DateTime<Utc>, String> {
                 time_str, e
             )
         })
-}
-
-#[derive(Serialize)]
-struct CreateScheduleRequest {
-    event_type: String,
-    scheduled_time: DateTime<Utc>,
-    context: String,
-    periodic: bool,
-}
-
-#[derive(Serialize)]
-struct UpdateScheduleRequest {
-    scheduled_time: Option<DateTime<Utc>>,
-    context: Option<String>,
-    periodic: Option<bool>,
-}
-
-#[derive(Deserialize)]
-struct ScheduleResponse {
-    id: String,
-    event_type: String,
-    scheduled_time: DateTime<Utc>,
-    context: String,
-    periodic: bool,
 }
 
 fn print_schedule(schedule: &ScheduleResponse) {

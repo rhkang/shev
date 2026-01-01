@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use clap::Subcommand;
-use serde::{Deserialize, Serialize};
+use shev_core::api::{CreateHandlerRequest, HandlerResponse, UpdateHandlerRequest};
 
 #[derive(Subcommand)]
 pub enum HandlerAction {
@@ -17,7 +17,7 @@ pub enum HandlerAction {
         command: String,
         /// Timeout in seconds
         #[arg(long, short)]
-        timeout: Option<u64>,
+        timeout: Option<u32>,
         /// Set environment variable (can be used multiple times): KEY=VALUE
         #[arg(long, short)]
         env: Option<Vec<String>>,
@@ -34,7 +34,7 @@ pub enum HandlerAction {
         command: Option<String>,
         /// Timeout in seconds
         #[arg(long, short)]
-        timeout: Option<u64>,
+        timeout: Option<u32>,
         /// Set environment variable (can be used multiple times): KEY=VALUE
         #[arg(long, short)]
         env: Option<Vec<String>>,
@@ -54,33 +54,6 @@ pub enum HandlerAction {
         /// Event type name
         event_type: String,
     },
-}
-
-#[derive(Serialize)]
-struct CreateHandlerRequest {
-    event_type: String,
-    shell: String,
-    command: String,
-    timeout: Option<u64>,
-    env: HashMap<String, String>,
-}
-
-#[derive(Serialize)]
-struct UpdateHandlerRequest {
-    shell: Option<String>,
-    command: Option<String>,
-    timeout: Option<Option<u64>>,
-    env: Option<HashMap<String, String>>,
-}
-
-#[derive(Deserialize)]
-struct HandlerResponse {
-    id: String,
-    event_type: String,
-    shell: String,
-    command: String,
-    timeout: Option<u64>,
-    env: HashMap<String, String>,
 }
 
 fn parse_env_vars(env: Option<Vec<String>>) -> Result<HashMap<String, String>, String> {

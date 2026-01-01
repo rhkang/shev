@@ -4,16 +4,20 @@ use axum::{
     http::StatusCode,
     routing::{get, post},
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use uuid::Uuid;
-
-use chrono::{DateTime, Utc};
 
 use crate::db::{Job, JobStatus};
 use crate::producer::{ScheduleManager, TimerManager};
 use crate::queue::EventSender;
-use crate::store::{JobStore, Warning};
+use crate::store::JobStore;
 use shev_core::ShellType;
+use shev_core::api::{
+    ConfigResponse, CreateHandlerRequest, CreateScheduleRequest, CreateTimerRequest,
+    HandlerResponse, HealthResponse, ReloadResponse, ScheduleResponse, StatusResponse,
+    TimerResponse, UpdateConfigRequest, UpdateHandlerRequest, UpdateScheduleRequest,
+    UpdateTimerRequest,
+};
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -21,15 +25,6 @@ pub struct ApiState {
     pub timer_manager: TimerManager,
     pub schedule_manager: ScheduleManager,
     pub sender: EventSender,
-}
-
-#[derive(Serialize)]
-pub struct StatusResponse {
-    pub total_jobs: usize,
-    pub pending_jobs: usize,
-    pub running_jobs: usize,
-    pub completed_jobs: usize,
-    pub failed_jobs: usize,
 }
 
 async fn get_status(State(state): State<ApiState>) -> Json<StatusResponse> {
@@ -108,19 +103,9 @@ async fn cancel_job(
     }
 }
 
-#[derive(Serialize)]
-pub struct HandlerResponse {
-    pub id: Uuid,
-    pub event_type: String,
-    pub shell: String,
-    pub command: String,
-    pub timeout: Option<u64>,
-    pub env: std::collections::HashMap<String, String>,
-}
-
 fn handler_to_response(h: crate::db::EventHandler) -> HandlerResponse {
     HandlerResponse {
-        id: h.id,
+        id: h.id.to_string(),
         event_type: h.event_type,
         shell: format!("{:?}", h.shell).to_lowercase(),
         command: h.command,
@@ -147,16 +132,6 @@ async fn get_handler_by_type(
         .ok_or(StatusCode::NOT_FOUND)
 }
 
-#[derive(Deserialize)]
-pub struct CreateHandlerRequest {
-    pub event_type: String,
-    pub shell: String,
-    pub command: String,
-    pub timeout: Option<u64>,
-    #[serde(default)]
-    pub env: std::collections::HashMap<String, String>,
-}
-
 async fn create_handler(
     State(state): State<ApiState>,
     Json(request): Json<CreateHandlerRequest>,
@@ -181,14 +156,6 @@ async fn create_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     Ok(Json(handler_to_response(handler)))
-}
-
-#[derive(Deserialize)]
-pub struct UpdateHandlerRequest {
-    pub shell: Option<String>,
-    pub command: Option<String>,
-    pub timeout: Option<Option<u64>>,
-    pub env: Option<std::collections::HashMap<String, String>>,
 }
 
 async fn update_handler(
@@ -241,17 +208,9 @@ async fn delete_handler(
     }
 }
 
-#[derive(Serialize)]
-pub struct TimerResponse {
-    pub id: Uuid,
-    pub event_type: String,
-    pub context: String,
-    pub interval_secs: u64,
-}
-
 fn timer_to_response(t: crate::db::TimerRecord) -> TimerResponse {
     TimerResponse {
-        id: t.id,
+        id: t.id.to_string(),
         event_type: t.event_type,
         context: t.context,
         interval_secs: t.interval_secs,
@@ -276,14 +235,6 @@ async fn get_timer_by_type(
         .ok_or(StatusCode::NOT_FOUND)
 }
 
-#[derive(Deserialize)]
-pub struct CreateTimerRequest {
-    pub event_type: String,
-    pub interval_secs: u64,
-    #[serde(default)]
-    pub context: String,
-}
-
 async fn create_timer(
     State(state): State<ApiState>,
     Json(request): Json<CreateTimerRequest>,
@@ -300,12 +251,6 @@ async fn create_timer(
         .await;
 
     Ok(Json(timer_to_response(timer)))
-}
-
-#[derive(Deserialize)]
-pub struct UpdateTimerRequest {
-    pub interval_secs: Option<u64>,
-    pub context: Option<String>,
 }
 
 async fn update_timer(
@@ -351,14 +296,6 @@ async fn delete_timer(
     }
 }
 
-#[derive(Serialize)]
-pub struct ReloadResponse {
-    pub success: bool,
-    pub handlers_loaded: usize,
-    pub timers_loaded: usize,
-    pub schedules_loaded: usize,
-}
-
 async fn reload(State(state): State<ApiState>) -> Json<ReloadResponse> {
     state.store.load_handlers().await;
     let handlers = state.store.get_handlers().await;
@@ -387,18 +324,9 @@ async fn reload(State(state): State<ApiState>) -> Json<ReloadResponse> {
     })
 }
 
-#[derive(Serialize)]
-pub struct ScheduleResponse {
-    pub id: Uuid,
-    pub event_type: String,
-    pub context: String,
-    pub scheduled_time: DateTime<Utc>,
-    pub periodic: bool,
-}
-
 fn schedule_to_response(s: crate::db::ScheduleRecord) -> ScheduleResponse {
     ScheduleResponse {
-        id: s.id,
+        id: s.id.to_string(),
         event_type: s.event_type,
         context: s.context,
         scheduled_time: s.scheduled_time,
@@ -425,16 +353,6 @@ async fn get_schedule_by_type(
         .ok_or(StatusCode::NOT_FOUND)
 }
 
-#[derive(Deserialize)]
-pub struct CreateScheduleRequest {
-    pub event_type: String,
-    pub scheduled_time: DateTime<Utc>,
-    #[serde(default)]
-    pub context: String,
-    #[serde(default)]
-    pub periodic: bool,
-}
-
 async fn create_schedule(
     State(state): State<ApiState>,
     Json(request): Json<CreateScheduleRequest>,
@@ -456,13 +374,6 @@ async fn create_schedule(
         .await;
 
     Ok(Json(schedule_to_response(schedule)))
-}
-
-#[derive(Deserialize)]
-pub struct UpdateScheduleRequest {
-    pub scheduled_time: Option<DateTime<Utc>>,
-    pub context: Option<String>,
-    pub periodic: Option<bool>,
 }
 
 async fn update_schedule(
@@ -509,24 +420,12 @@ async fn delete_schedule(
     }
 }
 
-#[derive(Serialize)]
-pub struct HealthResponse {
-    pub healthy: bool,
-    pub warnings: Vec<Warning>,
-}
-
 async fn healthcheck(State(state): State<ApiState>) -> Json<HealthResponse> {
     let warnings = state.store.get_warnings().await;
     Json(HealthResponse {
         healthy: warnings.is_empty(),
         warnings,
     })
-}
-
-#[derive(Serialize)]
-pub struct ConfigResponse {
-    pub port: String,
-    pub queue_size: String,
 }
 
 async fn get_config(State(state): State<ApiState>) -> Json<ConfigResponse> {
@@ -542,12 +441,6 @@ async fn get_config(State(state): State<ApiState>) -> Json<ConfigResponse> {
         .unwrap_or_else(|| "100".to_string());
 
     Json(ConfigResponse { port, queue_size })
-}
-
-#[derive(Deserialize)]
-pub struct UpdateConfigRequest {
-    pub port: Option<String>,
-    pub queue_size: Option<String>,
 }
 
 async fn update_config(

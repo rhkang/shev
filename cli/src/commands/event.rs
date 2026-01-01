@@ -1,5 +1,5 @@
 use clap::Subcommand;
-use serde::{Deserialize, Serialize};
+use shev_core::api::{TriggerEventRequest, TriggerEventResponse};
 
 #[derive(Subcommand)]
 pub enum EventAction {
@@ -13,18 +13,6 @@ pub enum EventAction {
     },
 }
 
-#[derive(Serialize)]
-struct EventRequest {
-    event_type: String,
-    context: String,
-}
-
-#[derive(Deserialize)]
-struct EventResponse {
-    triggered: bool,
-    message: String,
-}
-
 pub async fn execute(url: &str, action: EventAction) -> Result<(), String> {
     match action {
         EventAction::Trigger {
@@ -32,7 +20,7 @@ pub async fn execute(url: &str, action: EventAction) -> Result<(), String> {
             context,
         } => {
             let client = reqwest::Client::new();
-            let request = EventRequest {
+            let request = TriggerEventRequest {
                 event_type: event_type.clone(),
                 context,
             };
@@ -45,7 +33,7 @@ pub async fn execute(url: &str, action: EventAction) -> Result<(), String> {
                 .map_err(|e| format!("Failed to connect to server: {}", e))?;
 
             if resp.status().is_success() {
-                let body: EventResponse = resp
+                let body: TriggerEventResponse = resp
                     .json()
                     .await
                     .map_err(|e| format!("Failed to parse response: {}", e))?;

@@ -104,7 +104,7 @@ async fn run_timer(config: TimerRecord, sender: EventSender, store: JobStore) {
     );
 
     loop {
-        sleep(Duration::from_secs(config.interval_secs)).await;
+        sleep(Duration::from_secs(config.interval_secs.into())).await;
 
         let current_id = store.get_timer_id(&config.event_type).await;
         if current_id != Some(timer_id) {

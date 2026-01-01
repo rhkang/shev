@@ -1,6 +1,5 @@
-use chrono::{DateTime, Utc};
 use clap::Subcommand;
-use serde::Deserialize;
+use shev_core::api::JobResponse;
 
 #[derive(Subcommand)]
 pub enum JobAction {
@@ -26,26 +25,6 @@ pub enum JobAction {
         /// Job ID
         job_id: String,
     },
-}
-
-#[derive(Deserialize)]
-struct Event {
-    id: String,
-    event_type: String,
-    context: String,
-    timestamp: DateTime<Utc>,
-}
-
-#[derive(Deserialize)]
-struct JobResponse {
-    id: String,
-    event: Event,
-    handler_id: String,
-    status: String,
-    output: Option<String>,
-    error: Option<String>,
-    started_at: Option<DateTime<Utc>>,
-    finished_at: Option<DateTime<Utc>>,
 }
 
 fn truncate(s: &str, max: usize) -> String {

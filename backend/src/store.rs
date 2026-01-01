@@ -1,39 +1,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
-use serde::Serialize;
+use chrono::Utc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::db::{Database, Event, EventHandler, Job, JobStatus, ScheduleRecord, TimerRecord};
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-pub enum WarningKind {
-    MissingHandler,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct Warning {
-    pub kind: WarningKind,
-    pub event_type: String,
-    pub message: String,
-    pub created_at: DateTime<Utc>,
-}
-
-impl Warning {
-    pub fn missing_handler(event_type: &str, source: &str) -> Self {
-        Self {
-            kind: WarningKind::MissingHandler,
-            event_type: event_type.to_string(),
-            message: format!(
-                "{} '{}' has no handler - events will be skipped",
-                source, event_type
-            ),
-            created_at: Utc::now(),
-        }
-    }
-}
+pub use shev_core::api::{Warning, WarningKind};
 
 #[derive(Clone)]
 pub struct JobStore {
@@ -227,7 +200,7 @@ impl JobStore {
         event_type: &str,
         shell: &shev_core::ShellType,
         command: &str,
-        timeout: Option<u64>,
+        timeout: Option<u32>,
         env: &std::collections::HashMap<String, String>,
     ) -> Result<EventHandler, String> {
         let handler = self
@@ -244,7 +217,7 @@ impl JobStore {
         event_type: &str,
         shell: Option<&shev_core::ShellType>,
         command: Option<&str>,
-        timeout: Option<Option<u64>>,
+        timeout: Option<Option<u32>>,
         env: Option<&std::collections::HashMap<String, String>>,
     ) -> Result<EventHandler, String> {
         let handler = self
@@ -285,7 +258,7 @@ impl JobStore {
     pub async fn create_timer(
         &self,
         event_type: &str,
-        interval_secs: u64,
+        interval_secs: u32,
         context: &str,
     ) -> Result<TimerRecord, String> {
         self.db
@@ -296,7 +269,7 @@ impl JobStore {
     pub async fn update_timer_record(
         &self,
         event_type: &str,
-        interval_secs: Option<u64>,
+        interval_secs: Option<u32>,
         context: Option<&str>,
     ) -> Result<TimerRecord, String> {
         self.db

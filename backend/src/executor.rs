@@ -43,7 +43,7 @@ pub async fn execute_command(
     };
 
     let output = if let Some(timeout_secs) = handler.timeout {
-        match timeout(Duration::from_secs(timeout_secs), future).await {
+        match timeout(Duration::from_secs(timeout_secs.into()), future).await {
             Ok(result) => result?,
             Err(_) => return Err(format!("Command timed out after {} seconds", timeout_secs)),
         }

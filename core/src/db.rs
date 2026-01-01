@@ -66,11 +66,11 @@ pub struct TimerRecord {
     pub id: Uuid,
     pub event_type: String,
     pub context: String,
-    pub interval_secs: u64,
+    pub interval_secs: u32,
 }
 
 impl TimerRecord {
-    pub fn new(event_type: String, context: String, interval_secs: u64) -> Self {
+    pub fn new(event_type: String, context: String, interval_secs: u32) -> Self {
         Self {
             id: Uuid::new_v4(),
             event_type,
@@ -162,7 +162,7 @@ impl Database {
         event_type: &str,
         shell: &ShellType,
         command: &str,
-        timeout: Option<u64>,
+        timeout: Option<u32>,
         env: &HashMap<String, String>,
     ) -> Result<EventHandler, String> {
         let id = Uuid::new_v4();
@@ -201,7 +201,7 @@ impl Database {
         event_type: &str,
         shell: Option<&ShellType>,
         command: Option<&str>,
-        timeout: Option<Option<u64>>,
+        timeout: Option<Option<u32>>,
         env: Option<&HashMap<String, String>>,
     ) -> Result<EventHandler, String> {
         let existing = self
@@ -298,7 +298,7 @@ impl Database {
         let event_type: String = row.get(1)?;
         let shell_str: String = row.get(2)?;
         let command: String = row.get(3)?;
-        let timeout: Option<u64> = row.get(4)?;
+        let timeout: Option<u32> = row.get(4)?;
         let env_json: String = row.get(5)?;
 
         let shell = ShellType::from_str(&shell_str).unwrap_or(ShellType::Sh);
@@ -318,7 +318,7 @@ impl Database {
     pub fn insert_timer(
         &self,
         event_type: &str,
-        interval_secs: u64,
+        interval_secs: u32,
         context: &str,
     ) -> Result<TimerRecord, String> {
         let id = Uuid::new_v4();
@@ -343,7 +343,7 @@ impl Database {
     pub fn update_timer(
         &self,
         event_type: &str,
-        interval_secs: Option<u64>,
+        interval_secs: Option<u32>,
         context: Option<&str>,
     ) -> Result<TimerRecord, String> {
         let existing = self
@@ -413,7 +413,7 @@ impl Database {
                     let id: String = row.get(0)?;
                     let event_type: String = row.get(1)?;
                     let context: String = row.get(2)?;
-                    let interval_secs: u64 = row.get(3)?;
+                    let interval_secs: u32 = row.get(3)?;
 
                     Ok(TimerRecord {
                         id: Uuid::parse_str(&id).unwrap_or_else(|_| Uuid::new_v4()),
@@ -440,7 +440,7 @@ impl Database {
                 let id: String = row.get(0)?;
                 let event_type: String = row.get(1)?;
                 let context: String = row.get(2)?;
-                let interval_secs: u64 = row.get(3)?;
+                let interval_secs: u32 = row.get(3)?;
 
                 Ok(TimerRecord {
                     id: Uuid::parse_str(&id).unwrap_or_else(|_| Uuid::new_v4()),

@@ -95,7 +95,7 @@ impl Database {
         event_type: &str,
         shell: &shev_core::ShellType,
         command: &str,
-        timeout: Option<u64>,
+        timeout: Option<u32>,
         env: &std::collections::HashMap<String, String>,
     ) -> Result<EventHandler, String> {
         let db = self.inner.lock().await;
@@ -107,7 +107,7 @@ impl Database {
         event_type: &str,
         shell: Option<&shev_core::ShellType>,
         command: Option<&str>,
-        timeout: Option<Option<u64>>,
+        timeout: Option<Option<u32>>,
         env: Option<&std::collections::HashMap<String, String>>,
     ) -> Result<EventHandler, String> {
         let db = self.inner.lock().await;
@@ -122,7 +122,7 @@ impl Database {
     pub async fn insert_timer(
         &self,
         event_type: &str,
-        interval_secs: u64,
+        interval_secs: u32,
         context: &str,
     ) -> Result<TimerRecord, String> {
         let db = self.inner.lock().await;
@@ -132,7 +132,7 @@ impl Database {
     pub async fn update_timer(
         &self,
         event_type: &str,
-        interval_secs: Option<u64>,
+        interval_secs: Option<u32>,
         context: Option<&str>,
     ) -> Result<TimerRecord, String> {
         let db = self.inner.lock().await;
