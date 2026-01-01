@@ -2,7 +2,7 @@ use axum::{
     Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{get, post, put},
+    routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -135,6 +135,18 @@ async fn get_handlers(State(state): State<ApiState>) -> Json<Vec<HandlerResponse
     Json(responses)
 }
 
+async fn get_handler_by_type(
+    State(state): State<ApiState>,
+    Path(event_type): Path<String>,
+) -> Result<Json<HandlerResponse>, StatusCode> {
+    state
+        .store
+        .get_handler(&event_type)
+        .await
+        .map(|h| Json(handler_to_response(h)))
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
 #[derive(Deserialize)]
 pub struct CreateHandlerRequest {
     pub event_type: String,
@@ -250,6 +262,18 @@ async fn get_timers(State(state): State<ApiState>) -> Json<Vec<TimerResponse>> {
     let timers = state.store.get_timers().await;
     let responses: Vec<TimerResponse> = timers.into_iter().map(timer_to_response).collect();
     Json(responses)
+}
+
+async fn get_timer_by_type(
+    State(state): State<ApiState>,
+    Path(event_type): Path<String>,
+) -> Result<Json<TimerResponse>, StatusCode> {
+    state
+        .store
+        .get_timer(&event_type)
+        .await
+        .map(|t| Json(timer_to_response(t)))
+        .ok_or(StatusCode::NOT_FOUND)
 }
 
 #[derive(Deserialize)]
@@ -389,6 +413,18 @@ async fn get_schedules(State(state): State<ApiState>) -> Json<Vec<ScheduleRespon
     Json(responses)
 }
 
+async fn get_schedule_by_type(
+    State(state): State<ApiState>,
+    Path(event_type): Path<String>,
+) -> Result<Json<ScheduleResponse>, StatusCode> {
+    state
+        .store
+        .get_schedule(&event_type)
+        .await
+        .map(|s| Json(schedule_to_response(s)))
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
 #[derive(Deserialize)]
 pub struct CreateScheduleRequest {
     pub event_type: String,
@@ -487,6 +523,85 @@ async fn healthcheck(State(state): State<ApiState>) -> Json<HealthResponse> {
     })
 }
 
+#[derive(Serialize)]
+pub struct ConfigResponse {
+    pub port: String,
+    pub queue_size: String,
+}
+
+async fn get_config(State(state): State<ApiState>) -> Json<ConfigResponse> {
+    let port = state
+        .store
+        .get_config("port")
+        .await
+        .unwrap_or_else(|| "3000".to_string());
+    let queue_size = state
+        .store
+        .get_config("queue_size")
+        .await
+        .unwrap_or_else(|| "100".to_string());
+
+    Json(ConfigResponse { port, queue_size })
+}
+
+#[derive(Deserialize)]
+pub struct UpdateConfigRequest {
+    pub port: Option<String>,
+    pub queue_size: Option<String>,
+}
+
+async fn update_config(
+    State(state): State<ApiState>,
+    Json(request): Json<UpdateConfigRequest>,
+) -> Result<Json<ConfigResponse>, (StatusCode, String)> {
+    if let Some(port) = &request.port {
+        let port_num: u16 = port
+            .parse()
+            .map_err(|_| (StatusCode::BAD_REQUEST, format!("Invalid port: {}", port)))?;
+        if port_num == 0 {
+            return Err((StatusCode::BAD_REQUEST, "Port cannot be 0".to_string()));
+        }
+        state
+            .store
+            .set_config("port", port)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    }
+
+    if let Some(queue_size) = &request.queue_size {
+        let size: usize = queue_size.parse().map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid queue_size: {}", queue_size),
+            )
+        })?;
+        if size == 0 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Queue size cannot be 0".to_string(),
+            ));
+        }
+        state
+            .store
+            .set_config("queue_size", queue_size)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    }
+
+    let port = state
+        .store
+        .get_config("port")
+        .await
+        .unwrap_or_else(|| "3000".to_string());
+    let queue_size = state
+        .store
+        .get_config("queue_size")
+        .await
+        .unwrap_or_else(|| "100".to_string());
+
+    Ok(Json(ConfigResponse { port, queue_size }))
+}
+
 pub fn create_api_router(
     store: JobStore,
     timer_manager: TimerManager,
@@ -510,20 +625,28 @@ pub fn create_api_router(
         .route("/handlers", get(get_handlers).post(create_handler))
         .route(
             "/handlers/{event_type}",
-            put(update_handler).delete(delete_handler),
+            get(get_handler_by_type)
+                .put(update_handler)
+                .delete(delete_handler),
         )
         // Timers CRUD
         .route("/timers", get(get_timers).post(create_timer))
         .route(
             "/timers/{event_type}",
-            put(update_timer).delete(delete_timer),
+            get(get_timer_by_type)
+                .put(update_timer)
+                .delete(delete_timer),
         )
         // Schedules CRUD
         .route("/schedules", get(get_schedules).post(create_schedule))
         .route(
             "/schedules/{event_type}",
-            put(update_schedule).delete(delete_schedule),
+            get(get_schedule_by_type)
+                .put(update_schedule)
+                .delete(delete_schedule),
         )
+        // Config
+        .route("/config", get(get_config).put(update_config))
         .route("/reload", post(reload))
         .with_state(state)
 }

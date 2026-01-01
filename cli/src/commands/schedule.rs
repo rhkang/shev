@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use clap::Subcommand;
-
-use shev_core::Database;
+use serde::{Deserialize, Serialize};
 
 #[derive(Subcommand)]
 pub enum ScheduleAction {
@@ -58,9 +57,49 @@ fn parse_time(time_str: &str) -> Result<DateTime<Utc>, String> {
         })
 }
 
-pub fn execute(db_path: &str, action: ScheduleAction) -> Result<(), String> {
-    let db = Database::open(db_path)?;
-    db.init_schema()?;
+#[derive(Serialize)]
+struct CreateScheduleRequest {
+    event_type: String,
+    scheduled_time: DateTime<Utc>,
+    context: String,
+    periodic: bool,
+}
+
+#[derive(Serialize)]
+struct UpdateScheduleRequest {
+    scheduled_time: Option<DateTime<Utc>>,
+    context: Option<String>,
+    periodic: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct ScheduleResponse {
+    id: String,
+    event_type: String,
+    scheduled_time: DateTime<Utc>,
+    context: String,
+    periodic: bool,
+}
+
+fn print_schedule(schedule: &ScheduleResponse) {
+    println!("  ID: {}", schedule.id);
+    println!("  Event type: {}", schedule.event_type);
+    println!("  Scheduled time: {}", schedule.scheduled_time);
+    println!(
+        "  Periodic: {}",
+        if schedule.periodic {
+            "yes (daily)"
+        } else {
+            "no (one-shot)"
+        }
+    );
+    if !schedule.context.is_empty() {
+        println!("  Context: {}", schedule.context);
+    }
+}
+
+pub async fn execute(url: &str, action: ScheduleAction) -> Result<(), String> {
+    let client = reqwest::Client::new();
 
     match action {
         ScheduleAction::Add {
@@ -70,21 +109,31 @@ pub fn execute(db_path: &str, action: ScheduleAction) -> Result<(), String> {
             periodic,
         } => {
             let scheduled_time = parse_time(&time)?;
-            let schedule = db.insert_schedule(&event_type, scheduled_time, &context, periodic)?;
-            println!("Schedule added:");
-            println!("  ID: {}", schedule.id);
-            println!("  Event type: {}", schedule.event_type);
-            println!("  Scheduled time: {}", schedule.scheduled_time);
-            println!(
-                "  Periodic: {}",
-                if schedule.periodic {
-                    "yes (daily)"
-                } else {
-                    "no (one-shot)"
-                }
-            );
-            if !schedule.context.is_empty() {
-                println!("  Context: {}", schedule.context);
+            let request = CreateScheduleRequest {
+                event_type: event_type.clone(),
+                scheduled_time,
+                context,
+                periodic,
+            };
+
+            let resp = client
+                .post(format!("{}/schedules", url))
+                .json(&request)
+                .send()
+                .await
+                .map_err(|e| format!("Failed to connect to server: {}", e))?;
+
+            if resp.status().is_success() {
+                let schedule: ScheduleResponse = resp
+                    .json()
+                    .await
+                    .map_err(|e| format!("Failed to parse response: {}", e))?;
+                println!("Schedule added:");
+                print_schedule(&schedule);
+            } else {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                return Err(format!("Server returned error {}: {}", status, body));
             }
         }
         ScheduleAction::Update {
@@ -94,79 +143,115 @@ pub fn execute(db_path: &str, action: ScheduleAction) -> Result<(), String> {
             periodic,
         } => {
             let scheduled_time = time.map(|t| parse_time(&t)).transpose()?;
-            let schedule =
-                db.update_schedule(&event_type, scheduled_time, context.as_deref(), periodic)?;
-            println!("Schedule updated (new UUID generated):");
-            println!("  ID: {}", schedule.id);
-            println!("  Event type: {}", schedule.event_type);
-            println!("  Scheduled time: {}", schedule.scheduled_time);
-            println!(
-                "  Periodic: {}",
-                if schedule.periodic {
-                    "yes (daily)"
-                } else {
-                    "no (one-shot)"
-                }
-            );
-            if !schedule.context.is_empty() {
-                println!("  Context: {}", schedule.context);
+            let request = UpdateScheduleRequest {
+                scheduled_time,
+                context,
+                periodic,
+            };
+
+            let resp = client
+                .put(format!("{}/schedules/{}", url, event_type))
+                .json(&request)
+                .send()
+                .await
+                .map_err(|e| format!("Failed to connect to server: {}", e))?;
+
+            if resp.status().is_success() {
+                let schedule: ScheduleResponse = resp
+                    .json()
+                    .await
+                    .map_err(|e| format!("Failed to parse response: {}", e))?;
+                println!("Schedule updated (new UUID generated):");
+                print_schedule(&schedule);
+            } else {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                return Err(format!("Server returned error {}: {}", status, body));
             }
         }
         ScheduleAction::Remove { event_type } => {
-            if db.delete_schedule(&event_type)? {
+            let resp = client
+                .delete(format!("{}/schedules/{}", url, event_type))
+                .send()
+                .await
+                .map_err(|e| format!("Failed to connect to server: {}", e))?;
+
+            if resp.status().is_success() {
                 println!("Schedule '{}' removed", event_type);
-            } else {
+            } else if resp.status() == reqwest::StatusCode::NOT_FOUND {
                 println!("Schedule '{}' not found", event_type);
+            } else {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                return Err(format!("Server returned error {}: {}", status, body));
             }
         }
         ScheduleAction::List => {
-            let schedules = db.get_all_schedules()?;
-            if schedules.is_empty() {
-                println!("No schedules configured");
-            } else {
-                println!(
-                    "{:<20} {:<26} {:<10} {:<15} {}",
-                    "EVENT_TYPE", "SCHEDULED_TIME", "PERIODIC", "CONTEXT", "ID"
-                );
-                println!("{}", "-".repeat(110));
-                for s in schedules {
-                    let context = if s.context.is_empty() {
-                        "-".to_string()
-                    } else if s.context.len() > 13 {
-                        format!("{}...", &s.context[..10])
-                    } else {
-                        s.context.clone()
-                    };
-                    let periodic = if s.periodic { "daily" } else { "one-shot" };
+            let resp = client
+                .get(format!("{}/schedules", url))
+                .send()
+                .await
+                .map_err(|e| format!("Failed to connect to server: {}", e))?;
+
+            if resp.status().is_success() {
+                let schedules: Vec<ScheduleResponse> = resp
+                    .json()
+                    .await
+                    .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+                if schedules.is_empty() {
+                    println!("No schedules configured");
+                } else {
                     println!(
                         "{:<20} {:<26} {:<10} {:<15} {}",
-                        s.event_type,
-                        s.scheduled_time.format("%Y-%m-%dT%H:%M:%SZ"),
-                        periodic,
-                        context,
-                        s.id
+                        "EVENT_TYPE", "SCHEDULED_TIME", "PERIODIC", "CONTEXT", "ID"
                     );
+                    println!("{}", "-".repeat(110));
+                    for s in schedules {
+                        let context = if s.context.is_empty() {
+                            "-".to_string()
+                        } else if s.context.len() > 13 {
+                            format!("{}...", &s.context[..10])
+                        } else {
+                            s.context.clone()
+                        };
+                        let periodic = if s.periodic { "daily" } else { "one-shot" };
+                        println!(
+                            "{:<20} {:<26} {:<10} {:<15} {}",
+                            s.event_type,
+                            s.scheduled_time.format("%Y-%m-%dT%H:%M:%SZ"),
+                            periodic,
+                            context,
+                            s.id
+                        );
+                    }
                 }
+            } else {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                return Err(format!("Server returned error {}: {}", status, body));
             }
         }
         ScheduleAction::Show { event_type } => {
-            if let Some(s) = db.get_schedule(&event_type)? {
-                println!("Schedule: {}", s.event_type);
-                println!("  ID: {}", s.id);
-                println!("  Scheduled time: {}", s.scheduled_time);
-                println!(
-                    "  Periodic: {}",
-                    if s.periodic {
-                        "yes (daily)"
-                    } else {
-                        "no (one-shot)"
-                    }
-                );
-                if !s.context.is_empty() {
-                    println!("  Context: {}", s.context);
-                }
-            } else {
+            let resp = client
+                .get(format!("{}/schedules/{}", url, event_type))
+                .send()
+                .await
+                .map_err(|e| format!("Failed to connect to server: {}", e))?;
+
+            if resp.status().is_success() {
+                let schedule: ScheduleResponse = resp
+                    .json()
+                    .await
+                    .map_err(|e| format!("Failed to parse response: {}", e))?;
+                println!("Schedule: {}", schedule.event_type);
+                print_schedule(&schedule);
+            } else if resp.status() == reqwest::StatusCode::NOT_FOUND {
                 println!("Schedule '{}' not found", event_type);
+            } else {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                return Err(format!("Server returned error {}: {}", status, body));
             }
         }
     }

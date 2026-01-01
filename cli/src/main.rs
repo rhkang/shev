@@ -1,5 +1,4 @@
 mod commands;
-mod db;
 
 use clap::{Parser, Subcommand};
 
@@ -15,12 +14,8 @@ fn get_default_url() -> String {
 #[command(name = "shev")]
 #[command(about = "Shell Event System CLI", long_about = None)]
 struct Cli {
-    /// Path to the database file (default: SHEV_DB env, required if not set)
-    #[arg(long, env = "SHEV_DB")]
-    db: String,
-
-    /// Server URL for commands that connect to backend (default: SHEV_URL env or http://127.0.0.1:3000)
-    #[arg(long)]
+    /// Server URL (default: SHEV_URL env or http://127.0.0.1:3000)
+    #[arg(long, short)]
     url: Option<String>,
 
     #[command(subcommand)]
@@ -69,12 +64,12 @@ async fn main() {
     let url = cli.url.unwrap_or_else(get_default_url);
 
     let result = match cli.command {
-        Commands::Handler { action } => handler::execute(&cli.db, action),
-        Commands::Timer { action } => timer::execute(&cli.db, action),
-        Commands::Schedule { action } => schedule::execute(&cli.db, action),
-        Commands::Job { action } => job::execute(&cli.db, action),
+        Commands::Handler { action } => handler::execute(&url, action).await,
+        Commands::Timer { action } => timer::execute(&url, action).await,
+        Commands::Schedule { action } => schedule::execute(&url, action).await,
+        Commands::Job { action } => job::execute(&url, action).await,
         Commands::Event { action } => event::execute(&url, action).await,
-        Commands::Config { action } => config::execute(&cli.db, action),
+        Commands::Config { action } => config::execute(&url, action).await,
         Commands::Reload => reload(&url).await,
     };
 

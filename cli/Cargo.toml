@@ -8,10 +8,8 @@ name = "shev"
 path = "src/main.rs"
 
 [dependencies]
-shev-core.workspace = true
 clap.workspace = true
 chrono.workspace = true
-uuid.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true

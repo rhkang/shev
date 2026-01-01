@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
 use clap::Subcommand;
-
-use shev_core::{Database, ShellType};
+use serde::{Deserialize, Serialize};
 
 #[derive(Subcommand)]
 pub enum HandlerAction {
@@ -19,6 +18,9 @@ pub enum HandlerAction {
         /// Timeout in seconds
         #[arg(long, short)]
         timeout: Option<u64>,
+        /// Set environment variable (can be used multiple times): KEY=VALUE
+        #[arg(long, short)]
+        env: Option<Vec<String>>,
     },
     /// Update an existing handler (generates new UUID)
     Update {
@@ -54,9 +56,65 @@ pub enum HandlerAction {
     },
 }
 
-pub fn execute(db_path: &str, action: HandlerAction) -> Result<(), String> {
-    let db = Database::open(db_path)?;
-    db.init_schema()?;
+#[derive(Serialize)]
+struct CreateHandlerRequest {
+    event_type: String,
+    shell: String,
+    command: String,
+    timeout: Option<u64>,
+    env: HashMap<String, String>,
+}
+
+#[derive(Serialize)]
+struct UpdateHandlerRequest {
+    shell: Option<String>,
+    command: Option<String>,
+    timeout: Option<Option<u64>>,
+    env: Option<HashMap<String, String>>,
+}
+
+#[derive(Deserialize)]
+struct HandlerResponse {
+    id: String,
+    event_type: String,
+    shell: String,
+    command: String,
+    timeout: Option<u64>,
+    env: HashMap<String, String>,
+}
+
+fn parse_env_vars(env: Option<Vec<String>>) -> Result<HashMap<String, String>, String> {
+    let mut map = HashMap::new();
+    if let Some(env_vars) = env {
+        for var in env_vars {
+            if let Some((key, value)) = var.split_once('=') {
+                map.insert(key.to_string(), value.to_string());
+            } else {
+                return Err(format!("Invalid env format '{}', use KEY=VALUE", var));
+            }
+        }
+    }
+    Ok(map)
+}
+
+fn print_handler(handler: &HandlerResponse) {
+    println!("  ID: {}", handler.id);
+    println!("  Event type: {}", handler.event_type);
+    println!("  Shell: {}", handler.shell);
+    println!("  Command: {}", handler.command);
+    if let Some(t) = handler.timeout {
+        println!("  Timeout: {}s", t);
+    }
+    if !handler.env.is_empty() {
+        println!("  Environment:");
+        for (k, v) in &handler.env {
+            println!("    {}={}", k, v);
+        }
+    }
+}
+
+pub async fn execute(url: &str, action: HandlerAction) -> Result<(), String> {
+    let client = reqwest::Client::new();
 
     match action {
         HandlerAction::Add {
@@ -64,17 +122,35 @@ pub fn execute(db_path: &str, action: HandlerAction) -> Result<(), String> {
             shell,
             command,
             timeout,
+            env,
         } => {
-            let shell = parse_shell(&shell)?;
-            let env: HashMap<String, String> = HashMap::new();
-            let handler = db.insert_handler(&event_type, &shell, &command, timeout, &env)?;
-            println!("Handler added:");
-            println!("  ID: {}", handler.id);
-            println!("  Event type: {}", handler.event_type);
-            println!("  Shell: {}", handler.shell.as_str());
-            println!("  Command: {}", handler.command);
-            if let Some(t) = handler.timeout {
-                println!("  Timeout: {}s", t);
+            let env_map = parse_env_vars(env)?;
+            let request = CreateHandlerRequest {
+                event_type,
+                shell,
+                command,
+                timeout,
+                env: env_map,
+            };
+
+            let resp = client
+                .post(format!("{}/handlers", url))
+                .json(&request)
+                .send()
+                .await
+                .map_err(|e| format!("Failed to connect to server: {}", e))?;
+
+            if resp.status().is_success() {
+                let handler: HandlerResponse = resp
+                    .json()
+                    .await
+                    .map_err(|e| format!("Failed to parse response: {}", e))?;
+                println!("Handler added:");
+                print_handler(&handler);
+            } else {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                return Err(format!("Server returned error {}: {}", status, body));
             }
         }
         HandlerAction::Update {
@@ -85,107 +161,148 @@ pub fn execute(db_path: &str, action: HandlerAction) -> Result<(), String> {
             env,
             clear_env,
         } => {
-            let shell = shell.map(|s| parse_shell(&s)).transpose()?;
-
             let env_map = if clear_env {
                 Some(HashMap::new())
-            } else if let Some(env_vars) = env {
-                let existing = db
-                    .get_handler(&event_type)?
-                    .map(|h| h.env)
-                    .unwrap_or_default();
-                let mut new_env = existing;
-                for var in env_vars {
-                    if let Some((key, value)) = var.split_once('=') {
-                        new_env.insert(key.to_string(), value.to_string());
-                    } else {
-                        return Err(format!("Invalid env format '{}', use KEY=VALUE", var));
+            } else if env.is_some() {
+                // Fetch existing handler to merge env vars
+                let existing = client
+                    .get(format!("{}/handlers", url))
+                    .send()
+                    .await
+                    .map_err(|e| format!("Failed to connect to server: {}", e))?;
+
+                if existing.status().is_success() {
+                    let handlers: Vec<HandlerResponse> = existing
+                        .json()
+                        .await
+                        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+                    let current_env = handlers
+                        .iter()
+                        .find(|h| h.event_type == event_type)
+                        .map(|h| h.env.clone())
+                        .unwrap_or_default();
+
+                    let mut new_env = current_env;
+                    for (k, v) in parse_env_vars(env)? {
+                        new_env.insert(k, v);
                     }
+                    Some(new_env)
+                } else {
+                    Some(parse_env_vars(env)?)
                 }
-                Some(new_env)
             } else {
                 None
             };
 
-            let handler = db.update_handler(
-                &event_type,
-                shell.as_ref(),
-                command.as_deref(),
-                timeout.map(Some),
-                env_map.as_ref(),
-            )?;
-            println!("Handler updated (new UUID generated):");
-            println!("  ID: {}", handler.id);
-            println!("  Event type: {}", handler.event_type);
-            println!("  Shell: {}", handler.shell.as_str());
-            println!("  Command: {}", handler.command);
-            if let Some(t) = handler.timeout {
-                println!("  Timeout: {}s", t);
-            }
-            if !handler.env.is_empty() {
-                println!("  Environment:");
-                for (k, v) in &handler.env {
-                    println!("    {}={}", k, v);
-                }
+            let request = UpdateHandlerRequest {
+                shell,
+                command,
+                timeout: timeout.map(Some),
+                env: env_map,
+            };
+
+            let resp = client
+                .put(format!("{}/handlers/{}", url, event_type))
+                .json(&request)
+                .send()
+                .await
+                .map_err(|e| format!("Failed to connect to server: {}", e))?;
+
+            if resp.status().is_success() {
+                let handler: HandlerResponse = resp
+                    .json()
+                    .await
+                    .map_err(|e| format!("Failed to parse response: {}", e))?;
+                println!("Handler updated (new UUID generated):");
+                print_handler(&handler);
+            } else {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                return Err(format!("Server returned error {}: {}", status, body));
             }
         }
         HandlerAction::Remove { event_type } => {
-            if db.delete_handler(&event_type)? {
+            let resp = client
+                .delete(format!("{}/handlers/{}", url, event_type))
+                .send()
+                .await
+                .map_err(|e| format!("Failed to connect to server: {}", e))?;
+
+            if resp.status().is_success() {
                 println!("Handler '{}' removed", event_type);
-            } else {
+            } else if resp.status() == reqwest::StatusCode::NOT_FOUND {
                 println!("Handler '{}' not found", event_type);
+            } else {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                return Err(format!("Server returned error {}: {}", status, body));
             }
         }
         HandlerAction::List => {
-            let handlers = db.get_all_handlers()?;
-            if handlers.is_empty() {
-                println!("No handlers configured");
-            } else {
-                println!(
-                    "{:<20} {:<8} {:<10} {}",
-                    "EVENT_TYPE", "SHELL", "TIMEOUT", "ID"
-                );
-                println!("{}", "-".repeat(70));
-                for h in handlers {
-                    let timeout = h
-                        .timeout
-                        .map(|t| format!("{}s", t))
-                        .unwrap_or_else(|| "-".to_string());
+            let resp = client
+                .get(format!("{}/handlers", url))
+                .send()
+                .await
+                .map_err(|e| format!("Failed to connect to server: {}", e))?;
+
+            if resp.status().is_success() {
+                let handlers: Vec<HandlerResponse> = resp
+                    .json()
+                    .await
+                    .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+                if handlers.is_empty() {
+                    println!("No handlers configured");
+                } else {
                     println!(
                         "{:<20} {:<8} {:<10} {}",
-                        h.event_type,
-                        h.shell.as_str(),
-                        timeout,
-                        h.id
+                        "EVENT_TYPE", "SHELL", "TIMEOUT", "ID"
                     );
-                }
-            }
-        }
-        HandlerAction::Show { event_type } => {
-            if let Some(h) = db.get_handler(&event_type)? {
-                println!("Handler: {}", h.event_type);
-                println!("  ID: {}", h.id);
-                println!("  Shell: {}", h.shell.as_str());
-                println!("  Command: {}", h.command);
-                if let Some(t) = h.timeout {
-                    println!("  Timeout: {}s", t);
-                }
-                if !h.env.is_empty() {
-                    println!("  Environment:");
-                    for (k, v) in &h.env {
-                        println!("    {}={}", k, v);
+                    println!("{}", "-".repeat(70));
+                    for h in handlers {
+                        let timeout = h
+                            .timeout
+                            .map(|t| format!("{}s", t))
+                            .unwrap_or_else(|| "-".to_string());
+                        println!(
+                            "{:<20} {:<8} {:<10} {}",
+                            h.event_type, h.shell, timeout, h.id
+                        );
                     }
                 }
             } else {
-                println!("Handler '{}' not found", event_type);
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                return Err(format!("Server returned error {}: {}", status, body));
+            }
+        }
+        HandlerAction::Show { event_type } => {
+            let resp = client
+                .get(format!("{}/handlers", url))
+                .send()
+                .await
+                .map_err(|e| format!("Failed to connect to server: {}", e))?;
+
+            if resp.status().is_success() {
+                let handlers: Vec<HandlerResponse> = resp
+                    .json()
+                    .await
+                    .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+                if let Some(h) = handlers.iter().find(|h| h.event_type == event_type) {
+                    println!("Handler: {}", h.event_type);
+                    print_handler(h);
+                } else {
+                    println!("Handler '{}' not found", event_type);
+                }
+            } else {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                return Err(format!("Server returned error {}: {}", status, body));
             }
         }
     }
 
     Ok(())
-}
-
-fn parse_shell(shell: &str) -> Result<ShellType, String> {
-    ShellType::from_str(shell)
-        .ok_or_else(|| format!("Invalid shell '{}'. Use: pwsh, bash, or sh", shell))
 }

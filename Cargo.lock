@@ -1437,9 +1437,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "shev-core",
  "tokio",
- "uuid",
 ]
 
 [[package]]

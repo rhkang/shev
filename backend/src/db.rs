@@ -170,6 +170,16 @@ impl Database {
         let db = self.inner.lock().await;
         db.delete_schedule(event_type)
     }
+
+    pub async fn get_config(&self, key: &str) -> Option<String> {
+        let db = self.inner.lock().await;
+        db.get_config(key)
+    }
+
+    pub async fn set_config(&self, key: &str, value: &str) -> Result<(), String> {
+        let db = self.inner.lock().await;
+        db.set_config(key, value)
+    }
 }
 
 impl Clone for Database {

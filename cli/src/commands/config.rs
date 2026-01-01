@@ -1,6 +1,5 @@
 use clap::Subcommand;
-
-use shev_core::Database;
+use serde::{Deserialize, Serialize};
 
 #[derive(Subcommand)]
 pub enum ConfigAction {
@@ -15,44 +14,63 @@ pub enum ConfigAction {
     },
 }
 
-pub fn execute(db_path: &str, action: ConfigAction) -> Result<(), String> {
-    let db = Database::open(db_path)?;
-    db.init_schema()?;
+#[derive(Deserialize)]
+struct ConfigResponse {
+    port: String,
+    queue_size: String,
+}
+
+#[derive(Serialize)]
+struct UpdateConfigRequest {
+    port: Option<String>,
+    queue_size: Option<String>,
+}
+
+pub async fn execute(url: &str, action: ConfigAction) -> Result<(), String> {
+    let client = reqwest::Client::new();
 
     match action {
         ConfigAction::Show => {
-            let port = db.get_config("port").unwrap_or_else(|| "3000".to_string());
-            let queue_size = db
-                .get_config("queue_size")
-                .unwrap_or_else(|| "100".to_string());
+            let resp = client
+                .get(format!("{}/config", url))
+                .send()
+                .await
+                .map_err(|e| format!("Failed to connect to server: {}", e))?;
 
-            println!("Configuration:");
-            println!("  port: {}", port);
-            println!("  queue_size: {}", queue_size);
-            println!();
-            println!("Database: {}", db_path);
+            if resp.status().is_success() {
+                let config: ConfigResponse = resp
+                    .json()
+                    .await
+                    .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+                println!("Configuration:");
+                println!("  port: {}", config.port);
+                println!("  queue_size: {}", config.queue_size);
+            } else {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                return Err(format!("Server returned error {}: {}", status, body));
+            }
         }
         ConfigAction::Set { key, value } => {
-            match key.as_str() {
+            let request = match key.as_str() {
                 "port" => {
-                    let port: u16 = value
+                    let _: u16 = value
                         .parse()
                         .map_err(|_| format!("Invalid port: {}", value))?;
-                    if port == 0 {
-                        return Err("Port cannot be 0".to_string());
+                    UpdateConfigRequest {
+                        port: Some(value.clone()),
+                        queue_size: None,
                     }
-                    db.set_config("port", &value)?;
-                    println!("Set port = {}", port);
                 }
                 "queue_size" => {
-                    let size: usize = value
+                    let _: usize = value
                         .parse()
                         .map_err(|_| format!("Invalid queue_size: {}", value))?;
-                    if size == 0 {
-                        return Err("Queue size cannot be 0".to_string());
+                    UpdateConfigRequest {
+                        port: None,
+                        queue_size: Some(value.clone()),
                     }
-                    db.set_config("queue_size", &value)?;
-                    println!("Set queue_size = {}", size);
                 }
                 _ => {
                     return Err(format!(
@@ -60,9 +78,24 @@ pub fn execute(db_path: &str, action: ConfigAction) -> Result<(), String> {
                         key
                     ));
                 }
+            };
+
+            let resp = client
+                .put(format!("{}/config", url))
+                .json(&request)
+                .send()
+                .await
+                .map_err(|e| format!("Failed to connect to server: {}", e))?;
+
+            if resp.status().is_success() {
+                println!("Set {} = {}", key, value);
+                println!();
+                println!("Note: Restart the server for changes to take effect");
+            } else {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                return Err(format!("Server returned error {}: {}", status, body));
             }
-            println!();
-            println!("Note: Restart the server for changes to take effect");
         }
     }
 

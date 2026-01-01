@@ -345,4 +345,12 @@ impl JobStore {
         }
         Ok(deleted)
     }
+
+    pub async fn get_config(&self, key: &str) -> Option<String> {
+        self.db.get_config(key).await
+    }
+
+    pub async fn set_config(&self, key: &str, value: &str) -> Result<(), String> {
+        self.db.set_config(key, value).await
+    }
 }
